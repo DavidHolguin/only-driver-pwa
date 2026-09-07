@@ -1,0 +1,77 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Only Claro Radical 2026 Theme Tokens */
+    --background: 216 45% 98%;        /* #F7F9FC canvas */
+    --foreground: 216 45% 12%;        /* #111827 text */
+    --card: 0 0% 100%;                /* #FFFFFF clean cards */
+    --card-foreground: 216 45% 12%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 216 45% 12%;
+    --primary: 205 100% 20%;           /* #003B66 Azul Only */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 215 29% 95%;          /* #EEF2F6 */
+    --secondary-foreground: 216 45% 20%;
+    --muted: 215 29% 95%;
+    --muted-foreground: 216 15% 45%;
+    --accent: 205 100% 95%;
+    --accent-foreground: 205 100% 20%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 215 29% 90%;             /* subtle divider */
+    --input: 215 29% 90%;
+    --ring: 205 100% 20%;
+    --radius: 0.75rem;                 /* 12px for modern mobile cards */
+    
+    /* Indicadores de Salud y Operación */
+    --health-good: 152 60% 40%;
+    --health-warn: 38 92% 50%;
+    --health-bad: 0 72% 51%;
+  }
+
+  .dark {
+    --background: 205 100% 6%;         /* Deep night navy */
+    --foreground: 210 40% 98%;
+    --card: 205 100% 9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 205 100% 9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 200 98% 48%;            /* Vibrant blue highlight */
+    --primary-foreground: 0 0% 100%;
+    --secondary: 205 60% 15%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 205 60% 15%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 205 60% 18%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62% 40%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 205 60% 16%;
+    --input: 205 60% 16%;
+    --ring: 200 98% 48%;
+  }
+}
+
+/* Mobile Safe Areas for Notch / Bottom Home Bar */
+.pb-safe {
+  padding-bottom: max(env(safe-area-inset-bottom), 1rem);
+}
+.pt-safe {
+  padding-top: max(env(safe-area-inset-top), 0.75rem);
+}
+
+/* Custom Scrollbar for touch friendliness */
+::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 31, 54, 0.15);
+  border-radius: 9999px;
+}
