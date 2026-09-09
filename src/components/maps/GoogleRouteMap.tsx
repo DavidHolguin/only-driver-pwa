@@ -1,7 +1,7 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import { DeliveryOrder, TelemetryPoint } from '../../types/delivery'
-import { Compass, Navigation2, Layers, LocateFixed } from 'lucide-react'
+import { LocateFixed, Layers, Maximize2, Minimize2, Navigation, Compass } from 'lucide-react'
 
 interface GoogleRouteMapProps {
   driverCoords: TelemetryPoint
@@ -11,6 +11,9 @@ interface GoogleRouteMapProps {
   interactive?: boolean
   className?: string
   height?: string
+  allowFullscreenToggle?: boolean
+  isExpanded?: boolean
+  onToggleExpand?: () => void
 }
 
 export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
@@ -20,29 +23,36 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
   onSelectOrder,
   interactive = true,
   className = '',
-  height = '350px'
+  height = '350px',
+  allowFullscreenToggle = true,
+  isExpanded: externalIsExpanded,
+  onToggleExpand: externalOnToggleExpand
 }) => {
+  const [internalExpanded, setInternalExpanded] = useState(false)
+  const isExpanded = externalIsExpanded !== undefined ? externalIsExpanded : internalExpanded
+  const handleToggleExpand = externalOnToggleExpand || (() => setInternalExpanded(prev => !prev))
+
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const mapInstanceRef = useRef<L.Map | null>(null)
   const driverMarkerRef = useRef<L.Marker | null>(null)
   const markersLayerRef = useRef<L.LayerGroup | null>(null)
   const routePolylineRef = useRef<L.Polyline | null>(null)
 
-  // Inicializar mapa Leaflet con estilo minimalista
+  // Inicializar mapa interactivo (Estilo Google Maps Vectorial Clean)
   useEffect(() => {
     if (!mapContainerRef.current) return
 
     if (!mapInstanceRef.current) {
       const map = L.map(mapContainerRef.current, {
         center: [driverCoords.latitude, driverCoords.longitude],
-        zoom: 14,
+        zoom: 15,
         zoomControl: false,
         attributionControl: false
       })
 
-      // CartoDB Positron: Map tile ultra limpio, minimalista, ideal para apps de logística
+      // Tile layer de alta definición inspirado en la paleta oficial de Google Maps
       L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19,
+        maxZoom: 20,
         subdomains: 'abcd'
       }).addTo(map)
 
@@ -58,6 +68,16 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
     }
   }, [])
 
+  // Invalidar tamaño al expandir / minimizar para redibujar el canvas
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (mapInstanceRef.current) {
+        mapInstanceRef.current.invalidateSize()
+      }
+    }, 250)
+    return () => clearTimeout(timer)
+  }, [isExpanded])
+
   // Actualizar marcador del conductor en tiempo real
   useEffect(() => {
     const map = mapInstanceRef.current
@@ -66,17 +86,17 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
     const driverIcon = L.divIcon({
       className: 'driver-live-marker',
       html: `
-        <div class="relative flex items-center justify-center w-8 h-8">
-          <div class="absolute w-8 h-8 bg-blue-500/30 rounded-full animate-ping"></div>
-          <div class="relative flex items-center justify-center w-7 h-7 bg-[#001F36] border-2 border-white rounded-full shadow-lg text-white">
-            <svg class="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+        <div class="relative flex items-center justify-center w-10 h-10">
+          <div class="absolute w-10 h-10 bg-sky-500/30 rounded-full animate-ping"></div>
+          <div class="relative flex items-center justify-center w-8 h-8 bg-[#001F36] border-2 border-white rounded-full shadow-2xl text-white">
+            <svg class="w-4 h-4 text-sky-400" viewBox="0 0 24 24" fill="currentColor">
               <path d="M12 2L19 21L12 17L5 21L12 2Z" style="transform: rotate(${driverCoords.heading || 0}deg); transform-origin: center;"/>
             </svg>
           </div>
         </div>
       `,
-      iconSize: [32, 32],
-      iconAnchor: [16, 16]
+      iconSize: [40, 40],
+      iconAnchor: [20, 20]
     })
 
     if (!driverMarkerRef.current) {
@@ -108,32 +128,31 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
       const isFailed = order.status === 'failed'
       const isNext = order.status === 'next' || order.status === 'in_transit'
 
-      // Color coding según estado
-      let bgBadge = 'bg-[#003B66]' // Only navy default
+      let bgBadge = 'bg-[#003B66]'
       let ringStyle = ''
       if (isDelivered) bgBadge = 'bg-emerald-600'
       else if (isFailed) bgBadge = 'bg-rose-600'
       else if (isNext) {
         bgBadge = 'bg-amber-500 text-slate-950 font-extrabold'
-        ringStyle = 'ring-4 ring-amber-300/60 animate-bounce'
+        ringStyle = 'ring-4 ring-amber-300/80 animate-pulse'
       }
 
       if (isSelected) {
-        ringStyle += ' scale-125 ring-4 ring-blue-500'
+        ringStyle += ' scale-125 ring-4 ring-sky-500'
       }
 
       const pinIcon = L.divIcon({
         className: 'order-stop-marker',
         html: `
           <div class="flex flex-col items-center cursor-pointer transition-transform duration-200">
-            <div class="flex items-center justify-center w-7 h-7 ${bgBadge} ${ringStyle} text-white rounded-full shadow-md font-mono text-xs border-2 border-white">
+            <div class="flex items-center justify-center w-8 h-8 ${bgBadge} ${ringStyle} text-white rounded-full shadow-lg font-mono text-xs font-bold border-2 border-white">
               ${isDelivered ? '✓' : order.sequence_order}
             </div>
             <div class="w-1.5 h-1.5 bg-[#001F36] rounded-full mt-0.5 opacity-60"></div>
           </div>
         `,
-        iconSize: [28, 36],
-        iconAnchor: [14, 34]
+        iconSize: [32, 40],
+        iconAnchor: [16, 38]
       })
 
       const marker = L.marker([order.latitude, order.longitude], { icon: pinIcon })
@@ -158,10 +177,9 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
 
     if (routeLatLngs.length > 1) {
       routePolylineRef.current = L.polyline(routeLatLngs, {
-        color: '#003B66',
-        weight: 3.5,
-        opacity: 0.75,
-        dashArray: '6, 8',
+        color: '#0284c7', // Sky blue de alta visibilidad para conducción
+        weight: 4.5,
+        opacity: 0.9,
         lineJoin: 'round'
       }).addTo(map)
     }
@@ -170,7 +188,7 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
   // Centrar mapa en conductor
   const handleRecenter = () => {
     if (mapInstanceRef.current) {
-      mapInstanceRef.current.flyTo([driverCoords.latitude, driverCoords.longitude], 15, {
+      mapInstanceRef.current.flyTo([driverCoords.latitude, driverCoords.longitude], 16, {
         duration: 0.8
       })
     }
@@ -184,27 +202,49 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
       ...orders.map((o) => [o.latitude, o.longitude] as [number, number])
     ]
     const bounds = L.latLngBounds(points)
-    mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40] })
+    mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] })
   }
 
+  const containerHeight = isExpanded ? 'calc(100vh - 120px)' : height
+
   return (
-    <div className={`relative w-full rounded-2xl overflow-hidden border border-border shadow-card bg-slate-100 ${className}`} style={{ height }}>
+    <div
+      className={`relative w-full rounded-2xl overflow-hidden border border-border shadow-card bg-slate-100 transition-all duration-300 ${
+        isExpanded ? 'fixed inset-x-2 top-16 z-50 h-[calc(100vh-80px)] shadow-2xl' : ''
+      } ${className}`}
+      style={{ height: isExpanded ? 'calc(100vh - 90px)' : containerHeight }}
+    >
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
       {/* Floating Map Controls for Driver */}
       {interactive && (
         <div className="absolute top-3 right-3 z-[400] flex flex-col gap-2">
+          {allowFullscreenToggle && (
+            <button
+              onClick={handleToggleExpand}
+              aria-label={isExpanded ? 'Minimizar mapa' : 'Ampliar mapa a pantalla completa'}
+              className="p-3 bg-white/95 backdrop-blur shadow-lg rounded-2xl text-[#001F36] hover:bg-slate-50 active:scale-95 transition-all border border-border flex items-center justify-center"
+            >
+              {isExpanded ? (
+                <Minimize2 className="w-5 h-5 text-slate-800" />
+              ) : (
+                <Maximize2 className="w-5 h-5 text-[#001F36]" />
+              )}
+            </button>
+          )}
+
           <button
             onClick={handleRecenter}
             aria-label="Centrar en mi ubicación"
-            className="p-2.5 bg-white/95 backdrop-blur shadow-md rounded-xl text-[#001F36] hover:bg-slate-50 active:scale-95 transition-all border border-border"
+            className="p-3 bg-white/95 backdrop-blur shadow-lg rounded-2xl text-[#001F36] hover:bg-slate-50 active:scale-95 transition-all border border-border"
           >
-            <LocateFixed className="w-5 h-5 text-blue-600" />
+            <LocateFixed className="w-5 h-5 text-sky-600" />
           </button>
+
           <button
             onClick={handleFitRoute}
             aria-label="Ver toda la ruta"
-            className="p-2.5 bg-white/95 backdrop-blur shadow-md rounded-xl text-[#001F36] hover:bg-slate-50 active:scale-95 transition-all border border-border"
+            className="p-3 bg-white/95 backdrop-blur shadow-lg rounded-2xl text-[#001F36] hover:bg-slate-50 active:scale-95 transition-all border border-border"
           >
             <Layers className="w-5 h-5 text-slate-700" />
           </button>
@@ -212,15 +252,16 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
       )}
 
       {/* Driver GPS Status Pill Overlay */}
-      <div className="absolute bottom-3 left-3 z-[400] bg-white/90 backdrop-blur-md px-3 py-1.5 rounded-full border border-border/80 shadow-sm flex items-center gap-2">
+      <div className="absolute bottom-3 left-3 z-[400] bg-[#001F36]/90 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg flex items-center gap-2 text-white">
         <span className="relative flex h-2.5 w-2.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
         </span>
-        <span className="text-[11px] font-medium text-slate-700 font-mono">
-          GPS Activo (±{Math.round(driverCoords.accuracy || 5)}m)
+        <span className="text-[11px] font-semibold font-mono tracking-tight text-slate-100">
+          Google Maps GPS Activo
         </span>
       </div>
     </div>
   )
 }
+

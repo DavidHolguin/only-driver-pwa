@@ -16,13 +16,40 @@ export interface OrderItem {
 }
 
 export interface PodEvidence {
-  photo_url?: string
-  photo_blob?: Blob
-  received_by?: string
+  // 3 Fotos obligatorias de entrega exitosa
+  invoice_photo_url: string        // 1. Factura firmada
+  products_photo_url: string       // 2. Productos entregados
+  proof_photo_url: string          // 3. Fachada / Soporte adicional
+  
+  invoice_blob?: Blob
+  products_blob?: Blob
+  proof_blob?: Blob
+  
+  received_by: string
   recipient_id?: string
   recipient_phone?: string
   delivered_at: string
   comments?: string
+  driver_coords?: {
+    latitude: number
+    longitude: number
+  }
+}
+
+export interface NoveltyEvidence {
+  reason: string
+  description: string              // Nota o descripción detallada obligatoria
+  
+  // 3 Fotos obligatorias para No Conforme
+  full_products_photo_url: string  // 1. Foto de los productos completos
+  defect_photo_url: string         // 2. Foto del detalle de la novedad / no conforme
+  additional_photo_url: string     // 3. Foto que considere adicional
+  
+  full_products_blob?: Blob
+  defect_blob?: Blob
+  additional_blob?: Blob
+  
+  reported_at: string
   driver_coords?: {
     latitude: number
     longitude: number
@@ -62,6 +89,7 @@ export interface DeliveryOrder {
   
   // Prueba de entrega / Novedad
   pod?: PodEvidence
+  novelty?: NoveltyEvidence
   novelty_reason?: string
   novelty_notes?: string
   updated_at?: string

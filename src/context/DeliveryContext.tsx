@@ -1,7 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { DeliveryOrder, DriverProfile, PodEvidence } from '../types/delivery'
+import { DeliveryOrder, DriverProfile, PodEvidence, NoveltyEvidence } from '../types/delivery'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { telemetryService } from '../lib/telemetry'
+import { syncOrderStatusDual } from '../lib/dualSync'
 import { toast } from 'sonner'
 
 // Pedidos de ruta para Only Home (todos 100% pagos previamente)
@@ -137,7 +138,7 @@ interface DeliveryContextType {
   getOrderById: (id: string) => DeliveryOrder | undefined
   markAsInTransit: (id: string) => void
   completeDelivery: (id: string, pod: PodEvidence) => void
-  reportNovelty: (id: string, reason: string, notes?: string) => void
+  reportNovelty: (id: string, novelty: NoveltyEvidence | string, notes?: string) => void
   toggleDriverStatus: () => void
   stats: {
     total: number
@@ -178,9 +179,9 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   // Telemetría periódica y escucha de geocercas
   useEffect(() => {
     if (driver.is_tracking_active && coords) {
-      telemetryService.recordPoint(coords, orders)
+      telemetryService.recordPoint(coords, orders, driver)
     }
-  }, [coords, driver.is_tracking_active, orders])
+  }, [coords, driver, orders])
 
   // Escuchar alertas de proximidad para feedback en vivo
   useEffect(() => {
@@ -204,6 +205,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   )
 
   const markAsInTransit = useCallback((id: string) => {
+    const targetOrder = orders.find(o => o.id === id)
     setOrders((prev) =>
       prev.map((o) => {
         if (o.id === id) {
@@ -216,9 +218,23 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       })
     )
     toast.success('Ruta iniciada hacia este destino')
-  }, [])
+
+    if (targetOrder?.order_number) {
+      syncOrderStatusDual(
+        targetOrder.order_number,
+        'EN RUTA',
+        `Conductor ${driver.name} en camino (${driver.vehicle_plate})`,
+        driver.name
+      ).then(res => {
+        if (res.supabase || res.googleSheets) {
+          console.log(`[Delivery] Pedido #${targetOrder.order_number} sincronizado en ruta`)
+        }
+      })
+    }
+  }, [orders, driver])
 
   const completeDelivery = useCallback((id: string, pod: PodEvidence) => {
+    const targetOrder = orders.find(o => o.id === id)
     setOrders((prev) => {
       const updated = prev.map((o) => {
         if (o.id === id) {
@@ -240,33 +256,55 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
 
       return updated
     })
-  }, [])
 
-  const reportNovelty = useCallback((id: string, reason: string, notes?: string) => {
+    if (targetOrder?.order_number) {
+      syncOrderStatusDual(
+        targetOrder.order_number,
+        'ENTREGADO',
+        `Entrega exitosa a ${pod.received_by}. 3 fotos de evidencia registradas.`,
+        driver.name
+      ).then(() => {
+        toast.success(`Pedido #${targetOrder.order_number} marcado como ENTREGADO en el sistema`)
+      })
+    }
+  }, [orders, driver])
+
+  const reportNovelty = useCallback((id: string, noveltyData: NoveltyEvidence | string, notes?: string) => {
+    const targetOrder = orders.find(o => o.id === id)
+    const isObject = typeof noveltyData !== 'string'
+    const reason = isObject ? noveltyData.reason : noveltyData
+    const description = isObject ? noveltyData.description : (notes || '')
+    const noveltyObj = isObject ? noveltyData : undefined
+
     setOrders((prev) => {
       const updated = prev.map((o) => {
         if (o.id === id) {
           return {
             ...o,
             status: 'failed' as const,
+            novelty: noveltyObj,
             novelty_reason: reason,
-            novelty_notes: notes,
+            novelty_notes: description,
             updated_at: new Date().toISOString()
           }
         }
         return o
       })
-
-      // Activar siguiente pedido disponible
-      const nextPending = updated.find((o) => o.status === 'pending')
-      if (nextPending) {
-        nextPending.status = 'next'
-      }
-
       return updated
     })
-    toast.warning('Novedad de entrega reportada')
-  }, [])
+
+    if (targetOrder?.order_number) {
+      syncOrderStatusDual(
+        targetOrder.order_number,
+        'NO CONFORME',
+        `Novedad reportada: [${reason}] ${description}`,
+        driver.name
+      ).then(() => {
+        toast.info(`Novedad del pedido #${targetOrder.order_number} registrada en el sistema`)
+      })
+    }
+    toast.warning('Novedad de entrega reportada con evidencia')
+  }, [orders, driver])
 
   const toggleDriverStatus = useCallback(() => {
     setDriver((prev) => {

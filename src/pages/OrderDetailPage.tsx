@@ -111,47 +111,31 @@ export const OrderDetailPage: React.FC = () => {
           </div>
         )}
 
-        {/* Action Hub: Quick Communication Buttons */}
+        {/* Action Hub: Quick Communication with Customer (WhatsApp Oficial & Llamada de Conductor) */}
         <div className="bg-white rounded-2xl p-4 shadow-subtle border border-border">
           <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-3">
             Contacto Inmediato con Cliente
           </span>
 
-          <div className="grid grid-cols-2 gap-3 mb-3">
-            {/* WhatsApp Big Button */}
+          <div className="grid grid-cols-2 gap-3">
+            {/* WhatsApp Oficial Button */}
             <button
               onClick={handleWhatsApp}
-              className="flex items-center justify-center gap-2 py-3 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-sm shadow-md transition-all active:scale-98"
+              className="flex items-center justify-center gap-2 py-3 px-4 bg-[#25D366] hover:bg-[#20bd5a] text-white rounded-xl font-bold text-sm shadow-md transition-all active:scale-98"
             >
-              <MessageSquare className="w-5 h-5 text-white" />
+              <svg className="w-5 h-5 fill-current text-white shrink-0" viewBox="0 0 24 24">
+                <path d="M12.031 6.172c-3.181 0-5.767 2.586-5.768 5.766-.001 1.298.38 2.27 1.019 3.287l-.582 2.128 2.182-.573c.978.58 1.911.928 3.145.929 3.178 0 5.767-2.587 5.768-5.766.001-3.187-2.575-5.77-5.764-5.771zm3.392 8.244c-.144.405-.837.774-1.17.824-.299.045-.677.063-1.092-.069-.252-.08-.575-.187-.988-.365-1.739-.751-2.874-2.502-2.961-2.617-.087-.116-.708-.94-.708-1.793s.448-1.273.607-1.446c.159-.173.346-.217.462-.217l.332.006c.106.005.249-.04.39.298.144.347.491 1.2.534 1.287.043.087.072.188.014.304-.058.116-.087.188-.173.289l-.26.304c-.087.086-.177.18-.076.354.101.174.449.741.964 1.201.662.591 1.221.774 1.394.86.173.086.275.072.376-.044.101-.116.433-.506.549-.68.116-.173.231-.145.39-.086s1.011.477 1.184.564.289.13.332.202c.045.072.045.419-.099.824zm-3.392-10.416c-4.282 0-7.766 3.483-7.766 7.766 0 1.37.357 2.656.98 3.774l-1.042 3.805 3.904-1.024c1.077.587 2.316.92 3.633.92 4.282 0 7.766-3.483 7.766-7.766 0-4.282-3.484-7.765-7.767-7.765zm0 14.122c-1.168 0-2.285-.316-3.255-.87l-.233-.134-2.316.607.618-2.257-.148-.236c-.615-.98-.94-2.115-.94-3.284 0-3.504 2.851-6.354 6.355-6.354 3.503 0 6.354 2.85 6.354 6.354 0 3.504-2.851 6.354-6.354 6.354z"/>
+              </svg>
               <span>WhatsApp</span>
             </button>
 
-            {/* Direct Call Big Button */}
+            {/* Direct Call Button */}
             <button
               onClick={handleCall}
-              className="flex items-center justify-center gap-2 py-3 px-4 bg-[#003B66] hover:bg-[#001F36] text-white rounded-xl font-bold text-sm shadow-md transition-all active:scale-98"
+              className="flex items-center justify-center gap-2 py-3 px-4 bg-[#001F36] hover:bg-[#003B66] text-white rounded-xl font-bold text-sm shadow-md transition-all active:scale-98"
             >
-              <Phone className="w-5 h-5 text-sky-300" />
+              <Phone className="w-5 h-5 text-sky-400" />
               <span>Llamar</span>
-            </button>
-          </div>
-
-          {/* GPS Navigation Deep Links */}
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={() => openExternalNavigation(order.latitude, order.longitude, 'google')}
-              className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-200"
-            >
-              <Navigation className="w-4 h-4 text-blue-600" />
-              <span>Google Maps</span>
-            </button>
-            <button
-              onClick={() => openExternalNavigation(order.latitude, order.longitude, 'waze')}
-              className="py-2.5 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 border border-slate-200"
-            >
-              <ExternalLink className="w-4 h-4 text-sky-600" />
-              <span>Waze App</span>
             </button>
           </div>
         </div>
@@ -190,16 +174,22 @@ export const OrderDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Mini Route Map Preview */}
+        {/* Google Maps Interactivo con Vista Pantalla Completa / Minimizado */}
         <div className="bg-white rounded-2xl p-3 shadow-subtle border border-border">
-          <span className="text-xs font-bold text-slate-500 uppercase tracking-wider block mb-2 px-1">
-            Ubicación en Mapa
-          </span>
+          <div className="flex items-center justify-between mb-2 px-1">
+            <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
+              Navegación Google Maps en Vivo
+            </span>
+            <span className="text-[11px] text-sky-700 font-semibold bg-sky-50 px-2 py-0.5 rounded-md">
+              Toca para ampliar
+            </span>
+          </div>
           <GoogleRouteMap
             driverCoords={coords}
             orders={[order]}
             selectedOrderId={order.id}
-            height="180px"
+            height="220px"
+            allowFullscreenToggle={true}
           />
         </div>
 
@@ -244,22 +234,100 @@ export const OrderDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Existing POD Evidence if delivered */}
+        {/* Existing POD Evidence if delivered (3 fotos completas) */}
         {order.pod && (
-          <div className="bg-white rounded-2xl p-4 shadow-subtle border border-emerald-200">
-            <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block mb-2">
-              Evidencia de Entrega Registrada
+          <div className="bg-white rounded-2xl p-4 shadow-subtle border border-emerald-200 space-y-3">
+            <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">
+              Evidencia de Entrega Registrada (3 Fotos)
             </span>
-            {order.pod.photo_url && (
-              <img
-                src={order.pod.photo_url}
-                alt="Foto de Entrega"
-                className="w-full h-48 object-cover rounded-xl border border-slate-200 mb-2"
-              />
-            )}
-            <div className="text-xs space-y-1 text-slate-600">
+            
+            <div className="grid grid-cols-3 gap-2">
+              {order.pod.invoice_photo_url && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 truncate">1. Factura</span>
+                  <img
+                    src={order.pod.invoice_photo_url}
+                    alt="Factura firmada"
+                    className="w-full h-24 object-cover rounded-xl border border-slate-200 shadow-sm"
+                  />
+                </div>
+              )}
+
+              {order.pod.products_photo_url && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 truncate">2. Productos</span>
+                  <img
+                    src={order.pod.products_photo_url}
+                    alt="Productos entregados"
+                    className="w-full h-24 object-cover rounded-xl border border-slate-200 shadow-sm"
+                  />
+                </div>
+              )}
+
+              {order.pod.proof_photo_url && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 truncate">3. Fachada</span>
+                  <img
+                    src={order.pod.proof_photo_url}
+                    alt="Constancia de entrega"
+                    className="w-full h-24 object-cover rounded-xl border border-slate-200 shadow-sm"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="text-xs space-y-1 text-slate-600 pt-2 border-t border-slate-100">
               <p><strong>Recibido por:</strong> {order.pod.received_by || 'Cliente'}</p>
               {order.pod.comments && <p><strong>Comentarios:</strong> {order.pod.comments}</p>}
+            </div>
+          </div>
+        )}
+
+        {/* Evidencia de Novedad / No Conforme si ocurrió */}
+        {order.novelty && (
+          <div className="bg-white rounded-2xl p-4 shadow-subtle border border-rose-200 space-y-3">
+            <span className="text-xs font-bold text-rose-800 uppercase tracking-wider block">
+              Evidencia de No Conforme (3 Fotos)
+            </span>
+
+            <div className="grid grid-cols-3 gap-2">
+              {order.novelty.full_products_photo_url && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 truncate">1. Productos</span>
+                  <img
+                    src={order.novelty.full_products_photo_url}
+                    alt="Productos completos"
+                    className="w-full h-24 object-cover rounded-xl border border-slate-200 shadow-sm"
+                  />
+                </div>
+              )}
+
+              {order.novelty.defect_photo_url && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 truncate">2. Novedad</span>
+                  <img
+                    src={order.novelty.defect_photo_url}
+                    alt="Detalle de novedad"
+                    className="w-full h-24 object-cover rounded-xl border border-slate-200 shadow-sm"
+                  />
+                </div>
+              )}
+
+              {order.novelty.additional_photo_url && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-[10px] font-bold text-slate-500 truncate">3. Adicional</span>
+                  <img
+                    src={order.novelty.additional_photo_url}
+                    alt="Soporte adicional"
+                    className="w-full h-24 object-cover rounded-xl border border-slate-200 shadow-sm"
+                  />
+                </div>
+              )}
+            </div>
+
+            <div className="text-xs space-y-1 text-slate-700 pt-2 border-t border-slate-100">
+              <p><strong>Motivo:</strong> {order.novelty.reason}</p>
+              <p><strong>Detalle del conductor:</strong> {order.novelty.description}</p>
             </div>
           </div>
         )}
