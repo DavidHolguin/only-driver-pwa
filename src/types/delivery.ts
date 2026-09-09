@@ -104,6 +104,10 @@ export interface DriverProfile {
   active_route_name: string
   city: string
   is_tracking_active: boolean
+  photo_url?: string
+  pin?: string
+  token?: string
+  rutas_permitidas?: string
 }
 
 export interface TelemetryPoint {

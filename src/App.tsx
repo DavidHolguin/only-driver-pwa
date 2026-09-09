@@ -1,17 +1,24 @@
 import React, { useEffect } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
-import { DeliveryProvider } from './context/DeliveryContext'
+import { DeliveryProvider, useDelivery } from './context/DeliveryContext'
 import { DriverHeader } from './components/layout/DriverHeader'
 import { BottomNavigation } from './components/layout/BottomNavigation'
 import { RouteListPage } from './pages/RouteListPage'
 import { OrderDetailPage } from './pages/OrderDetailPage'
 import { DeliveryCompletePage } from './pages/DeliveryCompletePage'
 import { DriverProfilePage } from './pages/DriverProfilePage'
+import { PlateSelectorModal } from './components/auth/PlateSelectorModal'
 import { useWakeLock } from './hooks/useWakeLock'
 import { Toaster } from 'sonner'
 
 function AppContent() {
   const { requestLock } = useWakeLock()
+  const { 
+    isPlateModalOpen, 
+    setIsPlateModalOpen, 
+    setVehiclePlate, 
+    driver 
+  } = useDelivery()
 
   // Mantener pantalla activa para facilitar visualización del conductor mientras maneja
   useEffect(() => {
@@ -30,6 +37,15 @@ function AppContent() {
         </Routes>
       </main>
       <BottomNavigation />
+      
+      {/* Modal de Selección y Vinculación de Vehículo / Kiosko */}
+      <PlateSelectorModal
+        isOpen={isPlateModalOpen}
+        onClose={() => setIsPlateModalOpen(false)}
+        onSelect={(member) => setVehiclePlate(member)}
+        currentPlate={driver.vehicle_plate}
+      />
+
       <Toaster position="top-center" richColors />
     </div>
   )

@@ -3,9 +3,17 @@ import { DeliveryOrder, DriverProfile, PodEvidence, NoveltyEvidence } from '../t
 import { useGeolocation } from '../hooks/useGeolocation'
 import { telemetryService } from '../lib/telemetry'
 import { syncOrderStatusDual } from '../lib/dualSync'
+import { fetchDriverAssignedOrders } from '../lib/driverSync'
+import { 
+  findFleetMemberByPlate, 
+  buildDriverProfileFromFleet, 
+  DriverFleetMember, 
+  OFFICIAL_FLEET,
+  normalizePlate 
+} from '../lib/fleetData'
 import { toast } from 'sonner'
 
-// Pedidos de ruta para Only Home (todos 100% pagos previamente)
+// Pedidos de fallback inicial para Only Home
 const INITIAL_ORDERS: DeliveryOrder[] = [
   {
     id: 'ord-001',
@@ -119,22 +127,19 @@ const INITIAL_ORDERS: DeliveryOrder[] = [
   }
 ]
 
-const INITIAL_DRIVER: DriverProfile = {
-  id: 'drv-01',
-  name: 'Juan Carlos Benítez',
-  phone: '3104567890',
-  vehicle_type: 'furgon',
-  vehicle_plate: 'EQZ-459',
-  active_route_name: 'Ruta Norte Express — Bogotá',
-  city: 'Bogotá D.C.',
-  is_tracking_active: true
-}
+const DEFAULT_FLEET_MEMBER = OFFICIAL_FLEET[2] // SQF 187 Mauricio Valencia
+const INITIAL_DRIVER: DriverProfile = buildDriverProfileFromFleet(DEFAULT_FLEET_MEMBER)
 
 interface DeliveryContextType {
   orders: DeliveryOrder[]
   driver: DriverProfile
+  isLoadingOrders: boolean
+  isPlateModalOpen: boolean
+  setIsPlateModalOpen: (open: boolean) => void
   selectedOrderId: string | null
   setSelectedOrderId: (id: string | null) => void
+  setVehiclePlate: (member: DriverFleetMember) => void
+  reloadAssignedOrders: () => Promise<void>
   getOrderById: (id: string) => DeliveryOrder | undefined
   markAsInTransit: (id: string) => void
   completeDelivery: (id: string, pod: PodEvidence) => void
@@ -154,29 +159,122 @@ interface DeliveryContextType {
 const DeliveryContext = createContext<DeliveryContextType | undefined>(undefined)
 
 export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Inicialización del perfil del conductor desde Storage o Flota
+  const [driver, setDriver] = useState<DriverProfile>(() => {
+    const saved = localStorage.getItem('only_driver_profile_v3')
+    if (saved) {
+      try { return JSON.parse(saved) } catch {}
+    }
+    // Revisar si hay una placa guardada de sesión kiosko
+    const savedPlate = localStorage.getItem('only_driver_assigned_plate')
+    if (savedPlate) {
+      const found = findFleetMemberByPlate(savedPlate)
+      if (found) return buildDriverProfileFromFleet(found)
+    }
+    return INITIAL_DRIVER
+  })
+
   const [orders, setOrders] = useState<DeliveryOrder[]>(() => {
-    const saved = localStorage.getItem('only_driver_orders_v2')
+    const saved = localStorage.getItem('only_driver_orders_v3')
     return saved ? JSON.parse(saved) : INITIAL_ORDERS
   })
 
-  const [driver, setDriver] = useState<DriverProfile>(() => {
-    const saved = localStorage.getItem('only_driver_profile_v2')
-    return saved ? JSON.parse(saved) : INITIAL_DRIVER
-  })
-
+  const [isLoadingOrders, setIsLoadingOrders] = useState(false)
+  const [isPlateModalOpen, setIsPlateModalOpen] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const { coords } = useGeolocation(driver.is_tracking_active)
 
+  // Función para recargar pedidos asignados desde Supabase
+  const reloadAssignedOrders = useCallback(async () => {
+    if (!driver.vehicle_plate) return
+    setIsLoadingOrders(true)
+    try {
+      const fetched = await fetchDriverAssignedOrders(driver.vehicle_plate, driver.active_route_name)
+      if (fetched && fetched.length > 0) {
+        setOrders(fetched)
+        localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+        toast.success(`📥 ${fetched.length} pedidos cargados para el vehículo ${driver.vehicle_plate}`)
+      } else {
+        console.log(`[Delivery] No se encontraron nuevos pedidos en BD para ${driver.vehicle_plate}. Conservando actuales.`)
+      }
+    } catch (e) {
+      console.error('[Delivery] Error al recargar pedidos:', e)
+    } finally {
+      setIsLoadingOrders(false)
+    }
+  }, [driver.vehicle_plate, driver.active_route_name])
+
+  // Detección de Enlace Mágico / Parámetros URL al cargar la PWA
+  useEffect(() => {
+    try {
+      const url = new URL(window.location.href)
+      const plateParam = url.searchParams.get('placa')
+      const tokenParam = url.searchParams.get('token')
+
+      if (plateParam) {
+        const found = findFleetMemberByPlate(plateParam)
+        if (found) {
+          const newProfile = buildDriverProfileFromFleet(found)
+          if (tokenParam) newProfile.token = tokenParam
+
+          setDriver(newProfile)
+          localStorage.setItem('only_driver_assigned_plate', found.placa)
+          localStorage.setItem('only_driver_profile_v3', JSON.stringify(newProfile))
+          toast.success(`👋 ¡Bienvenido ${found.nombre}! Vehículo ${found.placa} vinculado exitosamente`, {
+            duration: 6000
+          })
+
+          // Cargar inmediatamente los pedidos asignados a esta placa
+          fetchDriverAssignedOrders(found.placa, found.rutas_permitidas).then(fetched => {
+            if (fetched && fetched.length > 0) {
+              setOrders(fetched)
+              localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+            }
+          })
+        }
+      } else {
+        // Si no viene en URL pero existe placa previa en localStorage, chequear pedidos en BD
+        const currentPlate = localStorage.getItem('only_driver_assigned_plate')
+        if (currentPlate) {
+          fetchDriverAssignedOrders(currentPlate, driver.active_route_name).then(fetched => {
+            if (fetched && fetched.length > 0) {
+              setOrders(fetched)
+              localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+            }
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('[Delivery] Error procesando enlace mágico:', err)
+    }
+  }, [])
+
+  // Cambiar vehículo manualmente (Kiosko)
+  const setVehiclePlate = useCallback((member: DriverFleetMember) => {
+    const newProfile = buildDriverProfileFromFleet(member)
+    setDriver(newProfile)
+    localStorage.setItem('only_driver_assigned_plate', member.placa)
+    localStorage.setItem('only_driver_profile_v3', JSON.stringify(newProfile))
+
+    // Cargar pedidos para el nuevo vehículo
+    fetchDriverAssignedOrders(member.placa, member.rutas_permitidas).then(fetched => {
+      if (fetched && fetched.length > 0) {
+        setOrders(fetched)
+        localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+      }
+    })
+  }, [])
+
   // Guardar en storage local para persistencia offline
   useEffect(() => {
-    localStorage.setItem('only_driver_orders_v2', JSON.stringify(orders))
+    localStorage.setItem('only_driver_orders_v3', JSON.stringify(orders))
   }, [orders])
 
   useEffect(() => {
-    localStorage.setItem('only_driver_profile_v2', JSON.stringify(driver))
+    localStorage.setItem('only_driver_profile_v3', JSON.stringify(driver))
   }, [driver])
 
-  // Telemetría periódica y escucha de geocercas
+  // Telemetría periódica y geocercas
   useEffect(() => {
     if (driver.is_tracking_active && coords) {
       telemetryService.recordPoint(coords, orders, driver)
@@ -248,7 +346,6 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return o
       })
 
-      // Marcar automáticamente el siguiente pedido pendiente como 'next'
       const nextPending = updated.find((o) => o.status === 'pending')
       if (nextPending) {
         nextPending.status = 'next'
@@ -314,7 +411,6 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     })
   }, [])
 
-  // Estadísticas operativas calculadas
   const total = orders.length
   const delivered = orders.filter((o) => o.status === 'delivered').length
   const failed = orders.filter((o) => o.status === 'failed').length
@@ -331,8 +427,13 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       value={{
         orders,
         driver,
+        isLoadingOrders,
+        isPlateModalOpen,
+        setIsPlateModalOpen,
         selectedOrderId,
         setSelectedOrderId,
+        setVehiclePlate,
+        reloadAssignedOrders,
         getOrderById,
         markAsInTransit,
         completeDelivery,
