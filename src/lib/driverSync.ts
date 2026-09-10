@@ -1,31 +1,77 @@
 import { supabase } from './supabase'
 import { DeliveryOrder } from '../types/delivery'
 
+// Coordenadas base por ciudad / región en Colombia para georreferenciación realista
+const CITY_COORDS: Record<string, { lat: number; lng: number }> = {
+  'MANIZALES': { lat: 5.0689, lng: -75.5174 },
+  'BOGOTA': { lat: 4.6782, lng: -74.0534 },
+  'PEREIRA': { lat: 4.8133, lng: -75.6961 },
+  'ARMENIA': { lat: 4.5339, lng: -75.6811 },
+  'VALLE DEL CAUCA': { lat: 3.4516, lng: -76.5320 },
+  'CALI': { lat: 3.4516, lng: -76.5320 },
+  'IBAGUE': { lat: 4.4389, lng: -75.2322 },
+  'NEIVA': { lat: 2.9273, lng: -75.2819 },
+  'POPAYAN': { lat: 2.4419, lng: -76.6063 },
+  'BUENAVENTURA': { lat: 3.8801, lng: -77.0312 },
+  'PALMIRA': { lat: 3.5394, lng: -76.3036 },
+  'ANTIOQUIA': { lat: 6.2442, lng: -75.5812 },
+  'MEDELLIN': { lat: 6.2442, lng: -75.5812 },
+  'PUEBLOS VALLE': { lat: 3.9000, lng: -76.3000 }
+}
+
+function getCityBaseCoords(city?: string, ruta?: string): { lat: number; lng: number } {
+  const c = (city || '').trim().toUpperCase()
+  const r = (ruta || '').trim().toUpperCase()
+
+  for (const key of Object.keys(CITY_COORDS)) {
+    if (c.includes(key) || r.includes(key)) {
+      return CITY_COORDS[key]
+    }
+  }
+  return { lat: 4.6782, lng: -74.0534 } // Default Bogotá
+}
+
 export async function fetchDriverAssignedOrders(plate: string, activeRoute?: string): Promise<DeliveryOrder[]> {
-  const cleanPlate = (plate || '').trim().toUpperCase().replace(/\s+/g, '')
-  if (!cleanPlate) return []
+  const cleanPlate = (plate || '').trim().toUpperCase()
+  const routeWords = (activeRoute || '').split(',').map(s => s.trim().toUpperCase()).filter(s => s && s !== 'TODAS' && !s.includes('NACIONALES'))
 
   try {
-    // 1. Consultar pedidos asignados a esta placa o ruta en estados operativos
-    // Estados: 'en_ruta', 'facturado', 'prog._cargue', 'listo_para_despacho'
+    // 1. Revisar si hay un manifiesto despachado en localStorage (desde la Consola)
+    const localManifestStr = localStorage.getItem('only_current_dispatch_manifest')
+    if (localManifestStr) {
+      try {
+        const manifest = JSON.parse(localManifestStr)
+        if (manifest && Array.isArray(manifest.pedidos) && manifest.pedidos.length > 0) {
+          // Si el manifiesto corresponde a esta placa o no tiene placa restrictiva
+          if (!manifest.placa || manifest.placa.replace(/\s+/g, '') === cleanPlate.replace(/\s+/g, '')) {
+            console.log('[driverSync] Cargando pedidos desde manifiesto local despachado:', manifest.pedidos.length)
+            return manifest.pedidos
+          }
+        }
+      } catch (e) {
+        console.warn('[driverSync] Error leyendo manifiesto local:', e)
+      }
+    }
+
+    // 2. Consultar pedidos en Supabase
+    // Buscar pedidos con estado 'en_ruta', 'prog._cargue', o 'facturado'
     let query = supabase
       .from('pedidos')
       .select('*')
 
-    // Si tiene placa o ruta
-    if (activeRoute && activeRoute !== 'TODAS' && !activeRoute.includes('Nacionales')) {
-      query = query.or(`placa.ilike.%${cleanPlate}%,ruta.ilike.%${activeRoute}%`)
-    } else {
-      query = query.ilike('placa', `%${cleanPlate}%`)
+    // Si tiene ruta específica asignada a la placa
+    if (routeWords.length > 0) {
+      const orFilter = routeWords.map(w => `ruta.ilike.%${w}%`).join(',')
+      query = query.or(orFilter)
     }
 
     const { data, error } = await query
-      .in('estado', ['en_ruta', 'facturado', 'prog._cargue', 'asignado', 'pendiente'])
+      .in('estado', ['en_ruta', 'prog._cargue', 'facturado'])
       .order('id', { ascending: true })
-      .limit(50)
+      .limit(30)
 
     if (error) {
-      console.warn('[driverSync] Error al consultar pedidos por placa:', error.message)
+      console.warn('[driverSync] Supabase query notice:', error.message)
       return []
     }
 
@@ -33,44 +79,60 @@ export async function fetchDriverAssignedOrders(plate: string, activeRoute?: str
       return []
     }
 
-    // Mapear filas de Supabase a DeliveryOrder de la PWA
+    // Mapear filas a DeliveryOrder con georreferenciación por cuadrantes urbanos
     const mapped: DeliveryOrder[] = data.map((row: any, idx: number) => {
-      // Coordenadas aproximadas según ciudad o aleatorias si faltan
-      const baseLat = 4.6782 + (idx * 0.006)
-      const baseLng = -74.0534 - (idx * 0.004)
+      const base = getCityBaseCoords(row.ciudad, row.ruta)
+      // Dispersión urbana realista (~500m - 2km)
+      const latOffset = ((idx % 5) - 2) * 0.007 + ((idx * 7) % 11) * 0.0012
+      const lngOffset = (((idx + 2) % 5) - 2) * 0.007 - ((idx * 3) % 13) * 0.0011
+
+      const lat = Number(row.latitud) || (base.lat + latOffset)
+      const lng = Number(row.longitud) || (base.lng + lngOffset)
+
+      let itemsParsed: any[] = []
+      if (Array.isArray(row.items)) {
+        itemsParsed = row.items.map((it: any, itIdx: number) => ({
+          id: `it-${row.id || idx}-${itIdx}`,
+          name: it.referencia || it.titulo_catalogo || 'Producto Only Home',
+          sku: it.sku || it.codigo || `SKU-${itIdx + 1}`,
+          quantity: Number(it.cantidad || 1)
+        }))
+      } else {
+        itemsParsed = [{
+          id: `it-${row.id || idx}-0`,
+          name: 'Mueble / Producto Only Home',
+          sku: 'OPT-ONLY-01',
+          quantity: Number(row.cantidad) || 1
+        }]
+      }
+
+      const totalUnits = itemsParsed.reduce((acc, it) => acc + (it.quantity || 1), 0)
 
       return {
-        id: String(row.id || `supa-${idx}`),
+        id: String(row.id || `ped-${row.numero_pedido || idx}`),
         order_number: String(row.numero_pedido || `PED-${idx + 1000}`),
         opv: row.opv ? String(row.opv) : undefined,
         invoice_number: row.numero_factura || undefined,
         sequence_order: idx + 1,
-        customer_name: row.cliente || row.nombre_cliente || 'Cliente Only Home',
-        customer_phone: row.telefono_contacto || row.telefono || '3000000000',
-        customer_document: row.cedula || row.documento_cliente || undefined,
+        customer_name: row.cliente || 'Cliente Only Home',
+        customer_phone: row.telefono1 || row.telefono2 || '3000000000',
+        customer_document: row.documento || undefined,
         customer_email: row.email || undefined,
-        address: row.direccion || 'Dirección de entrega Only Home',
-        neighborhood: row.barrio || row.localidad || 'Zona Urbana',
-        city: row.ciudad || 'Bogotá D.C.',
-        address_notes: row.observaciones || row.notas_entrega || 'Entregar en portería o en mano',
-        latitude: Number(row.latitud) || baseLat,
-        longitude: Number(row.longitud) || baseLng,
-        items: [
-          {
-            id: `item-${idx}`,
-            name: row.descripcion_producto || 'Producto Óptico / Only Home',
-            sku: row.sku || 'OPT-CAT-001',
-            quantity: Number(row.cantidad) || 1
-          }
-        ],
-        total_units: Number(row.cantidad) || 1,
+        address: row.direccion || 'Dirección de Entrega',
+        neighborhood: row.ciudad || 'Zona Urbana',
+        city: row.ciudad || 'Colombia',
+        address_notes: row.observaciones || 'Entregar en dirección registrada',
+        latitude: lat,
+        longitude: lng,
+        items: itemsParsed,
+        total_units: totalUnits,
         status: idx === 0 ? 'next' : 'pending'
       }
     })
 
     return mapped
   } catch (err: any) {
-    console.error('[driverSync] Exception al cargar pedidos:', err)
+    console.error('[driverSync] Error en fetchDriverAssignedOrders:', err)
     return []
   }
 }

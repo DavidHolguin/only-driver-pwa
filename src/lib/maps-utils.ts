@@ -1,15 +1,16 @@
 export function getNavigationUrls(latitude: number, longitude: number, label?: string) {
   const encodedLabel = encodeURIComponent(label || 'Destino de Entrega Only')
   return {
-    googleMapsApp: `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&travelmode=driving`,
+    // Google Maps Navigation Intent directo (inicia guiado por voz en celular)
+    googleMapsApp: `https://www.google.com/maps/dir/?api=1&destination=${latitude},${longitude}&travelmode=driving&dir_action=navigate`,
     wazeApp: `https://waze.com/ul?ll=${latitude},${longitude}&navigate=yes`,
-    appleMaps: `maps://maps.apple.com/?daddr=${latitude},${longitude}&q=${encodedLabel}`,
+    appleMaps: `maps://maps.apple.com/?daddr=${latitude},${longitude}&dirflg=d&q=${encodedLabel}`,
     coordsQuery: `${latitude},${longitude}`
   }
 }
 
-export function openExternalNavigation(latitude: number, longitude: number, app: 'google' | 'waze' | 'apple' = 'google') {
-  const urls = getNavigationUrls(latitude, longitude)
+export function openExternalNavigation(latitude: number, longitude: number, app: 'google' | 'waze' | 'apple' = 'google', label?: string) {
+  const urls = getNavigationUrls(latitude, longitude, label)
   let targetUrl = urls.googleMapsApp
 
   if (app === 'waze') {

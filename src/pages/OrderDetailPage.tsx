@@ -57,6 +57,13 @@ export const OrderDetailPage: React.FC = () => {
     window.location.href = `tel:${order.customer_phone}`
   }
 
+  const handleLaunchGoogleMapsNavigation = () => {
+    if (order.status === 'pending' || order.status === 'next') {
+      markAsInTransit(order.id)
+    }
+    openExternalNavigation(order.latitude, order.longitude, 'google', order.address)
+  }
+
   return (
     <div className="min-h-screen bg-[#F7F9FC] flex flex-col pb-32">
       {/* Top Sticky Navigation Bar */}
@@ -109,6 +116,17 @@ export const OrderDetailPage: React.FC = () => {
               <p className="text-xs text-rose-700">{order.novelty_reason}</p>
             </div>
           </div>
+        )}
+
+        {/* 🚀 BOTÓN PRINCIPAL DE NAVEGACIÓN GUIADA POR CARRETERA (Google Maps) */}
+        {!isDelivered && !isFailed && (
+          <button
+            onClick={handleLaunchGoogleMapsNavigation}
+            className="w-full flex items-center justify-center gap-2.5 py-3.5 px-4 bg-gradient-to-r from-sky-600 to-[#1a73e8] hover:from-sky-700 hover:to-blue-700 text-white rounded-2xl font-bold text-sm shadow-lg shadow-sky-500/25 active:scale-98 transition-all"
+          >
+            <Navigation className="w-5 h-5 fill-current" />
+            <span>Iniciar Navegación Guiada en Google Maps</span>
+          </button>
         )}
 
         {/* Action Hub: Quick Communication with Customer (WhatsApp Oficial & Llamada de Conductor) */}
@@ -228,13 +246,13 @@ export const OrderDetailPage: React.FC = () => {
               <span>Total unidades: <strong>{order.total_units}</strong></span>
             </div>
 
-            <span className="text-xs font-bold text-emerald-700 bg-emerald-100 px-2.5 py-1 rounded-full flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> 100% Pagado
+            <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+              <ShieldCheck className="w-3.5 h-3.5" /> 100% Facturado
             </span>
           </div>
         </div>
 
-        {/* Existing POD Evidence if delivered (3 fotos completas) */}
+        {/* Evidencia de Entrega si ya fue realizada */}
         {order.pod && (
           <div className="bg-white rounded-2xl p-4 shadow-subtle border border-emerald-200 space-y-3">
             <span className="text-xs font-bold text-emerald-800 uppercase tracking-wider block">

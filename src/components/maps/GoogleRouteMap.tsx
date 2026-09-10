@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react'
 import L from 'leaflet'
 import { DeliveryOrder, TelemetryPoint } from '../../types/delivery'
+import { fetchRoadRouteGeometry } from '../../lib/routing'
 import { LocateFixed, Layers, Maximize2, Minimize2, Navigation, Compass } from 'lucide-react'
 
 interface GoogleRouteMapProps {
@@ -37,6 +38,7 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
   const driverMarkerRef = useRef<L.Marker | null>(null)
   const markersLayerRef = useRef<L.LayerGroup | null>(null)
   const routePolylineRef = useRef<L.Polyline | null>(null)
+  const [isNavigatingRoad, setIsNavigatingRoad] = useState(false)
 
   // Inicializar mapa interactivo (Estilo Google Maps Vectorial Clean)
   useEffect(() => {
@@ -45,7 +47,7 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
     if (!mapInstanceRef.current) {
       const map = L.map(mapContainerRef.current, {
         center: [driverCoords.latitude, driverCoords.longitude],
-        zoom: 15,
+        zoom: 14,
         zoomControl: false,
         attributionControl: false
       })
@@ -78,7 +80,7 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
     return () => clearTimeout(timer)
   }, [isExpanded])
 
-  // Actualizar marcador del conductor en tiempo real
+  // Actualizar marcador del conductor en tiempo real con brújula/dirección
   useEffect(() => {
     const map = mapInstanceRef.current
     if (!map) return
@@ -110,7 +112,7 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
     }
   }, [driverCoords])
 
-  // Actualizar marcadores de pedidos y polilínea de ruta
+  // Actualizar marcadores de pedidos y trazado real por carretera (Google Maps Driving)
   useEffect(() => {
     const map = mapInstanceRef.current
     const layer = markersLayerRef.current
@@ -118,8 +120,14 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
 
     layer.clearLayers()
 
-    const routeLatLngs: L.LatLngExpression[] = [
-      [driverCoords.latitude, driverCoords.longitude]
+    // Waypoints ordenados por secuencia
+    const pendingOrders = orders
+      .filter(o => o.status !== 'delivered' && o.status !== 'failed')
+      .sort((a, b) => a.sequence_order - b.sequence_order)
+
+    const waypoints: [number, number][] = [
+      [driverCoords.latitude, driverCoords.longitude],
+      ...pendingOrders.map(o => [o.latitude, o.longitude] as [number, number])
     ]
 
     orders.forEach((order) => {
@@ -164,24 +172,33 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
       })
 
       layer.addLayer(marker)
-
-      if (!isDelivered && !isFailed) {
-        routeLatLngs.push([order.latitude, order.longitude])
-      }
     })
 
-    // Dibujar trazo de ruta
-    if (routePolylineRef.current) {
-      map.removeLayer(routePolylineRef.current)
-    }
+    // Consultar geometría de carretera real por OSRM
+    if (waypoints.length > 1) {
+      setIsNavigatingRoad(true)
+      fetchRoadRouteGeometry(waypoints).then((roadCoords) => {
+        if (routePolylineRef.current && map) {
+          map.removeLayer(routePolylineRef.current)
+        }
 
-    if (routeLatLngs.length > 1) {
-      routePolylineRef.current = L.polyline(routeLatLngs, {
-        color: '#0284c7', // Sky blue de alta visibilidad para conducción
-        weight: 4.5,
-        opacity: 0.9,
-        lineJoin: 'round'
-      }).addTo(map)
+        // Trazado estilo navegación asistida Google Maps (Línea azul brillante de alta visibilidad)
+        routePolylineRef.current = L.polyline(roadCoords as L.LatLngExpression[], {
+          color: '#1a73e8', // Google Maps Primary Blue
+          weight: 6,
+          opacity: 0.9,
+          lineJoin: 'round',
+          lineCap: 'round'
+        }).addTo(map)
+
+        setIsNavigatingRoad(false)
+      }).catch(() => {
+        setIsNavigatingRoad(false)
+      })
+    } else {
+      if (routePolylineRef.current) {
+        map.removeLayer(routePolylineRef.current)
+      }
     }
   }, [orders, selectedOrderId, driverCoords, onSelectOrder])
 
@@ -258,10 +275,9 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
           <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
         </span>
         <span className="text-[11px] font-semibold font-mono tracking-tight text-slate-100">
-          Google Maps GPS Activo
+          {isNavigatingRoad ? 'Calculando carreteras...' : 'Ruta por Carretera Activa'}
         </span>
       </div>
     </div>
   )
 }
-
