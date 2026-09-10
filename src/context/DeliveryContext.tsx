@@ -210,12 +210,16 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const url = new URL(window.location.href)
       const plateParam = url.searchParams.get('placa')
       const tokenParam = url.searchParams.get('token')
+      const rutaParam = url.searchParams.get('ruta')
+      const pedidosParam = url.searchParams.get('pedidos')
+      const pedidosList = pedidosParam ? pedidosParam.split(',').filter(Boolean) : undefined
 
       if (plateParam) {
         const found = findFleetMemberByPlate(plateParam)
         if (found) {
           const newProfile = buildDriverProfileFromFleet(found)
           if (tokenParam) newProfile.token = tokenParam
+          if (rutaParam) newProfile.active_route_name = rutaParam
 
           setDriver(newProfile)
           localStorage.setItem('only_driver_assigned_plate', found.placa)
@@ -225,7 +229,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           })
 
           // Cargar inmediatamente los pedidos asignados a esta placa
-          fetchDriverAssignedOrders(found.placa, found.rutas_permitidas).then(fetched => {
+          fetchDriverAssignedOrders(found.placa, rutaParam || found.rutas_permitidas, pedidosList).then(fetched => {
             if (fetched && fetched.length > 0) {
               setOrders(fetched)
               localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
@@ -236,7 +240,7 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         // Si no viene en URL pero existe placa previa en localStorage, chequear pedidos en BD
         const currentPlate = localStorage.getItem('only_driver_assigned_plate')
         if (currentPlate) {
-          fetchDriverAssignedOrders(currentPlate, driver.active_route_name).then(fetched => {
+          fetchDriverAssignedOrders(currentPlate, driver.active_route_name, pedidosList).then(fetched => {
             if (fetched && fetched.length > 0) {
               setOrders(fetched)
               localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))

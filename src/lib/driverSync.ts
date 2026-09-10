@@ -31,8 +31,13 @@ function getCityBaseCoords(city?: string, ruta?: string): { lat: number; lng: nu
   return { lat: 4.6782, lng: -74.0534 } // Default Bogotá
 }
 
-export async function fetchDriverAssignedOrders(plate: string, activeRoute?: string): Promise<DeliveryOrder[]> {
+export async function fetchDriverAssignedOrders(
+  plate: string, 
+  activeRoute?: string,
+  pedidosList?: string[]
+): Promise<DeliveryOrder[]> {
   const cleanPlate = (plate || '').trim().toUpperCase()
+  const cleanList = (pedidosList || []).map(p => String(p).trim().replace(/^#/, '')).filter(Boolean)
   const routeWords = (activeRoute || '').split(',').map(s => s.trim().toUpperCase()).filter(s => s && s !== 'TODAS' && !s.includes('NACIONALES'))
 
   try {
@@ -54,25 +59,45 @@ export async function fetchDriverAssignedOrders(plate: string, activeRoute?: str
     }
 
     // 2. Consultar pedidos en Supabase
-    // Buscar pedidos con estado 'en_ruta', 'prog._cargue', o 'facturado'
-    let query = supabase
-      .from('pedidos')
-      .select('*')
+    let data: any[] = []
 
-    // Si tiene ruta específica asignada a la placa
-    if (routeWords.length > 0) {
-      const orFilter = routeWords.map(w => `ruta.ilike.%${w}%`).join(',')
-      query = query.or(orFilter)
+    // Si tenemos una lista explícita de pedidos (proveniente de Enlace Mágico / QR)
+    if (cleanList.length > 0) {
+      const { data: exactData, error: exactErr } = await supabase
+        .from('pedidos')
+        .select('*')
+        .in('numero_pedido', cleanList)
+
+      if (!exactErr && exactData && exactData.length > 0) {
+        // Ordenar en la secuencia que venían en el enlace
+        data = cleanList
+          .map(num => exactData.find((r: any) => String(r.numero_pedido).trim() === num))
+          .filter(Boolean)
+      }
     }
 
-    const { data, error } = await query
-      .in('estado', ['en_ruta', 'prog._cargue', 'facturado'])
-      .order('id', { ascending: true })
-      .limit(30)
+    // Si no hubo lista explícita o no retornó datos, buscar por ruta / estado
+    if (data.length === 0) {
+      let query = supabase
+        .from('pedidos')
+        .select('*')
 
-    if (error) {
-      console.warn('[driverSync] Supabase query notice:', error.message)
-      return []
+      // Si tiene ruta específica asignada a la placa
+      if (routeWords.length > 0) {
+        const orFilter = routeWords.map(w => `ruta.ilike.%${w}%`).join(',')
+        query = query.or(orFilter)
+      }
+
+      const { data: queryData, error: queryErr } = await query
+        .in('estado', ['en_ruta', 'prog._cargue', 'facturado'])
+        .order('id', { ascending: true })
+        .limit(30)
+
+      if (queryErr) {
+        console.warn('[driverSync] Supabase query notice:', queryErr.message)
+      } else if (queryData) {
+        data = queryData
+      }
     }
 
     if (!data || data.length === 0) {
