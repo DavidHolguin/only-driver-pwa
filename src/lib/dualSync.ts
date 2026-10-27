@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase'
+import { hoyBogota } from './fecha'
 
 const GAS_URL = "https://script.google.com/macros/s/AKfycbx8pHOHRVkE7G170ZFBSkXcuv-IuQPzk8x52IVfZ1EKOhIQ8F7RXd-8ZjKg1duD8r0qYQ/exec";
 const GAS_TOKEN = "OH_SECRET_AGY_2026";
@@ -47,7 +48,9 @@ export async function syncOrderStatusDual(
     };
 
     if (nuevoEstado === 'ENTREGADO') {
-      updatePayload.fecha_entrega_real = new Date().toISOString().split('T')[0];
+      // Fecha de pared en Bogotá: con `toISOString()` una entrega hecha después de las
+      // 7 p.m. quedaba con la fecha del día siguiente.
+      updatePayload.fecha_entrega_real = hoyBogota();
     }
 
     const { error: supaErr } = await supabase
