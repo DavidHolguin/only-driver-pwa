@@ -2,30 +2,34 @@ import React, { useState, useRef } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useDelivery } from '../context/DeliveryContext'
 import { useGeolocation } from '../hooks/useGeolocation'
-import { PodEvidence, NoveltyEvidence } from '../types/delivery'
+import { PodEvidence, NoveltyEvidence, DeliveryOrder } from '../types/delivery'
+import { PhotoSlot } from '../components/PhotoSlot'
 import confetti from 'canvas-confetti'
-import { 
-  ArrowLeft, 
-  Camera, 
-  CheckCircle2, 
-  AlertTriangle, 
-  Trash2, 
-  UserCheck, 
-  FileText, 
-  Check,
+import {
+  ArrowLeft,
+  CheckCircle2,
+  AlertTriangle,
   FileCheck2,
   PackageCheck,
   Building2,
   AlertOctagon,
-  Image as ImageIcon
+  Image as ImageIcon,
 } from 'lucide-react'
 import { toast } from 'sonner'
+import { cn } from '../lib/utils'
+
+type OrderWithOcr = DeliveryOrder & {
+  ocr?: {
+    numero?: string
+    total?: string
+  }
+}
 
 export const DeliveryCompletePage: React.FC = () => {
   const { id } = useParams<{ id: string }>()
   const [searchParams] = useSearchParams()
   const initialMode = searchParams.get('mode') === 'novedad' ? 'novedad' : 'entrega'
-  
+
   const navigate = useNavigate()
   const { getOrderById, completeDelivery, reportNovelty, driver } = useDelivery()
   const { coords } = useGeolocation(driver.is_tracking_active)
@@ -56,7 +60,7 @@ export const DeliveryCompletePage: React.FC = () => {
 
   const [receivedBy, setReceivedBy] = useState<string>(order?.customer_name || '')
   const [comments, setComments] = useState<string>('')
-  
+
   // No Conforme campos
   const [noveltyReason, setNoveltyReason] = useState<string>('Producto averiado o con golpe')
   const [noveltyDescription, setNoveltyDescription] = useState<string>('')
@@ -74,16 +78,20 @@ export const DeliveryCompletePage: React.FC = () => {
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-[#F7F9FC] flex flex-col items-center justify-center p-6">
-        <h2 className="text-lg font-bold text-slate-900">Pedido no encontrado</h2>
-        <button onClick={() => navigate('/')} className="mt-4 px-4 py-2 bg-[#001F36] text-white rounded-xl text-sm font-bold">
-          Volver a la Ruta
+      <div className="min-h-screen bg-background flex flex-col items-center justify-center p-6 text-center">
+        <h2 className="text-base font-semibold text-foreground">Pedido no encontrado</h2>
+        <button
+          type="button"
+          onClick={() => navigate('/')}
+          className="mt-4 h-11 px-6 bg-primary text-primary-foreground rounded-xl text-sm font-semibold active:scale-95 transition"
+        >
+          Volver a la ruta
         </button>
       </div>
     )
   }
 
-  // Comprimir foto en el navegador vía Canvas para optimizar subida móvil
+  // Comprimir foto en el navegador vía Canvas a 1280/0.82
   const processCapturedPhoto = (
     file: File,
     onSuccess: (previewUrl: string, blob: Blob) => void
@@ -163,23 +171,39 @@ export const DeliveryCompletePage: React.FC = () => {
       comments: comments.trim() || undefined,
       driver_coords: {
         latitude: coords.latitude,
-        longitude: coords.longitude
-      }
+        longitude: coords.longitude,
+      },
     }
+
+    const prevOrdersJson = localStorage.getItem('only_driver_orders_v3')
 
     completeDelivery(order.id, pod)
 
     confetti({
       particleCount: 90,
       spread: 75,
-      origin: { y: 0.6 }
+      origin: { y: 0.6 },
     })
 
-    toast.success(`¡Entrega exitosa completada con las 3 fotos de soporte!`)
-
-    setTimeout(() => {
+    const timer = setTimeout(() => {
       navigate('/')
-    }, 1200)
+    }, 2500)
+
+    toast.success('Entrega confirmada con éxito', {
+      duration: 5000,
+      action: {
+        label: 'Deshacer',
+        onClick: () => {
+          clearTimeout(timer)
+          setIsSubmitting(false)
+          if (prevOrdersJson) {
+            localStorage.setItem('only_driver_orders_v3', prevOrdersJson)
+          }
+          toast.info('Entrega deshecha')
+          window.location.href = `/pedido/${order.id}`
+        },
+      },
+    })
   }
 
   const handleConfirmNovelty = () => {
@@ -196,7 +220,7 @@ export const DeliveryCompletePage: React.FC = () => {
       return
     }
     if (!noveltyDescription.trim() || noveltyDescription.trim().length < 8) {
-      toast.error('Ingresa una descripción o nota detallada de lo sucedido (mínimo 8 caracteres)')
+      toast.error('Ingresa una descripción de lo sucedido (mínimo 8 caracteres)')
       return
     }
 
@@ -214,252 +238,197 @@ export const DeliveryCompletePage: React.FC = () => {
       reported_at: new Date().toISOString(),
       driver_coords: {
         latitude: coords.latitude,
-        longitude: coords.longitude
-      }
+        longitude: coords.longitude,
+      },
     }
 
+    const prevOrdersJson = localStorage.getItem('only_driver_orders_v3')
+
     reportNovelty(order.id, noveltyData)
-    toast.warning(`No conforme registrado con las 3 fotografías de respaldo`)
-    setTimeout(() => {
+
+    const timer = setTimeout(() => {
       navigate('/')
-    }, 1000)
+    }, 2500)
+
+    toast.warning('No conforme registrado', {
+      duration: 5000,
+      action: {
+        label: 'Deshacer',
+        onClick: () => {
+          clearTimeout(timer)
+          setIsSubmitting(false)
+          if (prevOrdersJson) {
+            localStorage.setItem('only_driver_orders_v3', prevOrdersJson)
+          }
+          toast.info('Registro de no conforme deshecho')
+          window.location.href = `/pedido/${order.id}`
+        },
+      },
+    })
   }
-
-  // Componente de ranura de foto individual
-  const PhotoSlotCard = ({
-    title,
-    subtitle,
-    badgeText,
-    icon: Icon,
-    previewUrl,
-    inputRef,
-    onCapture,
-    onClear
-  }: {
-    title: string
-    subtitle: string
-    badgeText: string
-    icon: React.ElementType
-    previewUrl: string | null
-    inputRef: React.RefObject<HTMLInputElement | null>
-    onCapture: (e: React.ChangeEvent<HTMLInputElement>) => void
-    onClear: () => void
-  }) => (
-    <div className="bg-white rounded-2xl p-4 shadow-subtle border border-border">
-      <div className="flex items-center justify-between mb-1.5">
-        <span className="text-xs font-bold text-slate-800 flex items-center gap-1.5 uppercase tracking-wide">
-          <Icon className="w-4 h-4 text-sky-600" />
-          {title}
-        </span>
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full font-mono ${
-          previewUrl ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'
-        }`}>
-          {previewUrl ? '✓ Capturada' : badgeText}
-        </span>
-      </div>
-      <p className="text-xs text-slate-500 mb-3">{subtitle}</p>
-
-      {previewUrl ? (
-        <div className="relative rounded-2xl overflow-hidden border-2 border-emerald-500/50">
-          <img src={previewUrl} alt={title} className="w-full h-44 object-cover" />
-          <button
-            type="button"
-            onClick={onClear}
-            className="absolute top-2.5 right-2.5 p-2 bg-rose-600 text-white rounded-full shadow-lg hover:bg-rose-700 active:scale-95 transition-all"
-          >
-            <Trash2 className="w-4 h-4" />
-          </button>
-          <div className="absolute bottom-2 left-2 bg-emerald-950/80 backdrop-blur px-2.5 py-0.5 rounded-full text-[10px] text-white font-mono flex items-center gap-1">
-            <Check className="w-3 h-3 text-emerald-400" /> Foto procesada
-          </div>
-        </div>
-      ) : (
-        <div
-          onClick={() => inputRef.current?.click()}
-          className="w-full h-36 border-2 border-dashed border-sky-300 hover:border-sky-500 bg-sky-50/40 rounded-2xl flex flex-col items-center justify-center cursor-pointer transition-all active:scale-[0.99] p-3 text-center"
-        >
-          <div className="w-11 h-11 rounded-full bg-sky-500/10 flex items-center justify-center text-sky-600 mb-1.5">
-            <Camera className="w-5 h-5" />
-          </div>
-          <span className="text-xs font-bold text-[#001F36]">Tocar para Tomar Foto</span>
-          <span className="text-[11px] text-slate-500 mt-0.5">Cámara de conductor</span>
-        </div>
-      )}
-
-      <input
-        ref={inputRef as React.RefObject<HTMLInputElement>}
-        type="file"
-        accept="image/*"
-        capture="environment"
-        onChange={onCapture}
-        className="hidden"
-      />
-    </div>
-  )
 
   const deliveryPhotosCount = [invoicePhoto, productsPhoto, proofPhoto].filter(Boolean).length
   const noveltyPhotosCount = [fullProductsPhoto, defectPhoto, additionalPhoto].filter(Boolean).length
 
+  const ocr = (order as OrderWithOcr).ocr
+
   return (
-    <div className="min-h-screen bg-[#F7F9FC] flex flex-col pb-36 font-sans">
-      {/* Top Header */}
-      <header className="sticky top-0 z-30 bg-[#001F36] text-white px-4 py-3 shadow-md pt-safe flex items-center justify-between">
+    <div className="min-h-[calc(100dvh-3.5rem-env(safe-area-inset-top,0px))] bg-background flex flex-col justify-between font-sans">
+      {/* Sub-header de navegación con área táctil >= 44px */}
+      <div className="bg-card border-b border-border px-4 py-2 flex items-center justify-between">
         <button
+          type="button"
           onClick={() => navigate(`/pedido/${order.id}`)}
-          className="p-1.5 rounded-lg bg-white/10 hover:bg-white/20 active:scale-95 transition-all text-white flex items-center gap-1 text-xs font-semibold"
+          className="h-11 px-3 -ml-2 rounded-xl text-foreground hover:bg-secondary flex items-center gap-1.5 text-sm font-semibold active:scale-95 transition"
+          aria-label="Volver al detalle del pedido"
         >
           <ArrowLeft className="w-4 h-4" />
           <span>Volver</span>
         </button>
 
-        <div className="text-center">
-          <span className="text-[10px] uppercase tracking-wider text-sky-300 font-semibold block">
-            Cierre de Entrega #{order.sequence_order}
+        <div className="text-center min-w-0 px-2">
+          <span className="text-xs text-muted-foreground block truncate">
+            Parada #{order.sequence_order}
           </span>
-          <h1 className="font-mono text-sm font-bold text-white">{order.order_number}</h1>
+          <h1 className="font-mono text-sm font-semibold text-foreground truncate">
+            {order.order_number}
+          </h1>
         </div>
 
-        <div className="w-16 text-right text-[11px] font-mono text-sky-300 font-semibold">
+        <span className="font-mono text-xs text-muted-foreground font-medium text-right min-w-[56px]">
           {mode === 'entrega' ? `${deliveryPhotosCount}/3 fotos` : `${noveltyPhotosCount}/3 fotos`}
-        </div>
-      </header>
-
-      {/* Mode Switcher */}
-      <div className="p-4">
-        <div className="grid grid-cols-2 bg-slate-200 p-1 rounded-2xl">
-          <button
-            onClick={() => setMode('entrega')}
-            className={`py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-              mode === 'entrega'
-                ? 'bg-emerald-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <CheckCircle2 className="w-4 h-4" />
-            <span>Entrega Exitosa (3 Fotos)</span>
-          </button>
-
-          <button
-            onClick={() => setMode('novedad')}
-            className={`py-3 rounded-xl font-bold text-xs flex items-center justify-center gap-2 transition-all ${
-              mode === 'novedad'
-                ? 'bg-rose-600 text-white shadow-md'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <AlertTriangle className="w-4 h-4" />
-            <span>No Conforme (3 Fotos)</span>
-          </button>
-        </div>
+        </span>
       </div>
 
-      {/* Content based on Mode */}
-      <div className="px-4 space-y-4">
+      {/* Contenido principal */}
+      <div className="px-4 py-4 pb-28 space-y-4 flex-1">
+        {/* Switch Entrega / No conforme */}
+        <div className="h-11 p-1 rounded-xl bg-secondary grid grid-cols-2 gap-1 select-none">
+          <button
+            type="button"
+            onClick={() => setMode('entrega')}
+            className={cn(
+              'h-full rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.98]',
+              mode === 'entrega'
+                ? 'bg-card text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Entrega exitosa</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('novedad')}
+            className={cn(
+              'h-full rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition active:scale-[0.98]',
+              mode === 'novedad'
+                ? 'bg-card text-destructive shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+          >
+            <AlertTriangle className="w-4 h-4" />
+            <span>No conforme</span>
+          </button>
+        </div>
+
+        {/* Bloque informativo de lectura de factura: oculto si no hay OCR */}
+        {ocr && ocr.numero && (
+          <div className="bg-secondary rounded-xl px-3 py-2 text-xs text-muted-foreground">
+            Factura #{ocr.numero} {ocr.total ? `· ${ocr.total}` : ''}
+          </div>
+        )}
+
         {mode === 'entrega' ? (
           <>
-            {/* Aviso 3 Fotos */}
-            <div className="bg-sky-50 border border-sky-200 rounded-2xl p-3.5 flex items-center gap-3">
-              <FileCheck2 className="w-5 h-5 text-sky-700 shrink-0" />
-              <p className="text-xs text-sky-900 leading-snug">
-                Para finalizar la entrega debes registrar obligatoriamente las <strong>3 fotografías de respaldo</strong>.
-              </p>
+            {/* Tres slots de fotos con PhotoSlot */}
+            <div className="space-y-1.5">
+              <span className="text-xs font-semibold text-foreground block">
+                Fotos de evidencia (3 requeridas)
+              </span>
+              <div className="grid grid-cols-3 gap-3">
+                <PhotoSlot
+                  etiqueta="Factura firmada"
+                  icono={FileCheck2}
+                  url={invoicePhoto}
+                  obligatoria
+                  onCapturar={() => invoiceInputRef.current?.click()}
+                  onQuitar={() => {
+                    setInvoicePhoto(null)
+                    setInvoiceBlob(null)
+                    if (invoiceInputRef.current) invoiceInputRef.current.value = ''
+                  }}
+                />
+                <PhotoSlot
+                  etiqueta="Productos"
+                  icono={PackageCheck}
+                  url={productsPhoto}
+                  obligatoria
+                  onCapturar={() => productsInputRef.current?.click()}
+                  onQuitar={() => {
+                    setProductsPhoto(null)
+                    setProductsBlob(null)
+                    if (productsInputRef.current) productsInputRef.current.value = ''
+                  }}
+                />
+                <PhotoSlot
+                  etiqueta="Fachada"
+                  icono={Building2}
+                  url={proofPhoto}
+                  obligatoria
+                  onCapturar={() => proofInputRef.current?.click()}
+                  onQuitar={() => {
+                    setProofPhoto(null)
+                    setProofBlob(null)
+                    if (proofInputRef.current) proofInputRef.current.value = ''
+                  }}
+                />
+              </div>
             </div>
 
-            {/* FOTO 1: Factura Firmada */}
-            <PhotoSlotCard
-              title="Foto 1: Factura Firmada"
-              subtitle="Captura la factura en físico firmada y con sello/cédula por quien recibe."
-              badgeText="Requerida *"
-              icon={FileCheck2}
-              previewUrl={invoicePhoto}
-              inputRef={invoiceInputRef}
-              onCapture={(e) => {
-                const file = e.target.files?.[0]
-                if (file) processCapturedPhoto(file, (url, b) => { setInvoicePhoto(url); setInvoiceBlob(b); })
-              }}
-              onClear={() => { setInvoicePhoto(null); setInvoiceBlob(null); if (invoiceInputRef.current) invoiceInputRef.current.value = '' }}
-            />
-
-            {/* FOTO 2: Productos Entregados */}
-            <PhotoSlotCard
-              title="Foto 2: Productos Entregados"
-              subtitle="Captura los productos completos organizados en el lugar del cliente."
-              badgeText="Requerida *"
-              icon={PackageCheck}
-              previewUrl={productsPhoto}
-              inputRef={productsInputRef}
-              onCapture={(e) => {
-                const file = e.target.files?.[0]
-                if (file) processCapturedPhoto(file, (url, b) => { setProductsPhoto(url); setProductsBlob(b); })
-              }}
-              onClear={() => { setProductsPhoto(null); setProductsBlob(null); if (productsInputRef.current) productsInputRef.current.value = '' }}
-            />
-
-            {/* FOTO 3: Fachada / Soporte */}
-            <PhotoSlotCard
-              title="Foto 3: Fachada o Soporte de Entrega"
-              subtitle="Captura la fachada del predio, portería o entorno de la dirección."
-              badgeText="Requerida *"
-              icon={Building2}
-              previewUrl={proofPhoto}
-              inputRef={proofInputRef}
-              onCapture={(e) => {
-                const file = e.target.files?.[0]
-                if (file) processCapturedPhoto(file, (url, b) => { setProofPhoto(url); setProofBlob(b); })
-              }}
-              onClear={() => { setProofPhoto(null); setProofBlob(null); if (proofInputRef.current) proofInputRef.current.value = '' }}
-            />
-
-            {/* Datos del Receptor */}
-            <div className="bg-white rounded-2xl p-4 shadow-subtle border border-border space-y-3">
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
-                  <UserCheck className="w-4 h-4 text-slate-500" />
-                  Nombre Completo de Quien Recibe *
+            {/* Inputs de soporte */}
+            <div className="bg-card rounded-2xl p-4 border border-border space-y-3">
+              <div className="space-y-1.5">
+                <label htmlFor="received-by" className="text-xs font-semibold text-foreground block">
+                  Recibe *
                 </label>
                 <input
+                  id="received-by"
                   type="text"
                   value={receivedBy}
                   onChange={(e) => setReceivedBy(e.target.value)}
-                  placeholder="Ej: Camila Restrepo (Cliente) o Carlos (Portero)"
-                  className="w-full px-3.5 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#003B66]"
+                  placeholder="Nombre de quien recibe"
+                  className="w-full h-11 px-3.5 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition"
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-bold text-slate-700 block mb-1 flex items-center gap-1.5">
-                  <FileText className="w-4 h-4 text-slate-500" />
-                  Observaciones de Entrega (Opcional)
+              <div className="space-y-1.5">
+                <label htmlFor="delivery-comments" className="text-xs font-semibold text-foreground block">
+                  Observaciones (opcional)
                 </label>
                 <textarea
+                  id="delivery-comments"
                   rows={2}
                   value={comments}
                   onChange={(e) => setComments(e.target.value)}
-                  placeholder="Ej: Entrega realizada en piso 4 sin ascensor, cliente satisfecho."
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-[#003B66]"
+                  placeholder="Notas adicionales sobre la entrega..."
+                  className="w-full p-3 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition resize-none"
                 />
               </div>
             </div>
           </>
         ) : (
-          /* MODO NO CONFORME CON FOTOS EXPLICITAS */
           <>
-            <div className="bg-rose-50 border border-rose-200 rounded-2xl p-3.5 flex items-center gap-3">
-              <AlertOctagon className="w-5 h-5 text-rose-700 shrink-0" />
-              <p className="text-xs text-rose-900 leading-snug">
-                El reporte de <strong>No Conforme</strong> requiere 3 fotografías explícitas y una descripción detallada del conductor.
-              </p>
-            </div>
-
             {/* Selector de Motivo */}
-            <div className="bg-white rounded-2xl p-4 shadow-subtle border border-rose-200 space-y-3">
-              <label className="text-xs font-bold text-slate-800 block">
-                Motivo del No Conforme *
+            <div className="space-y-1.5">
+              <label htmlFor="novelty-reason" className="text-xs font-semibold text-foreground block">
+                Motivo del no conforme *
               </label>
               <select
+                id="novelty-reason"
                 value={noveltyReason}
                 onChange={(e) => setNoveltyReason(e.target.value)}
-                className="w-full px-3.5 py-3 rounded-xl border border-slate-300 text-sm font-semibold bg-slate-50 focus:outline-none focus:ring-2 focus:ring-rose-500"
+                className="w-full h-11 px-3.5 rounded-xl border border-border bg-card text-sm text-foreground outline-none focus:border-primary transition"
               >
                 <option value="Producto averiado o con golpe">Producto averiado o con golpe</option>
                 <option value="Inconformidad del cliente con color / tela / medidas">Inconformidad del cliente con color / tela / medidas</option>
@@ -470,93 +439,164 @@ export const DeliveryCompletePage: React.FC = () => {
               </select>
             </div>
 
-            {/* FOTO 1 NO CONFORME: Productos Completos */}
-            <PhotoSlotCard
-              title="Foto 1: Productos Completos"
-              subtitle="Captura panorámica de todos los productos del pedido tal como se presentaron."
-              badgeText="Obligatoria *"
-              icon={PackageCheck}
-              previewUrl={fullProductsPhoto}
-              inputRef={fullProductsInputRef}
-              onCapture={(e) => {
-                const file = e.target.files?.[0]
-                if (file) processCapturedPhoto(file, (url, b) => { setFullProductsPhoto(url); setFullProductsBlob(b); })
-              }}
-              onClear={() => { setFullProductsPhoto(null); setFullProductsBlob(null); if (fullProductsInputRef.current) fullProductsInputRef.current.value = '' }}
-            />
-
-            {/* FOTO 2 NO CONFORME: Detalle de la Novedad */}
-            <PhotoSlotCard
-              title="Foto 2: Detalle de la Novedad / Daño"
-              subtitle="Primer plano cercano donde se aprecie claramente el motivo o problema reportado."
-              badgeText="Obligatoria *"
-              icon={AlertOctagon}
-              previewUrl={defectPhoto}
-              inputRef={defectInputRef}
-              onCapture={(e) => {
-                const file = e.target.files?.[0]
-                if (file) processCapturedPhoto(file, (url, b) => { setDefectPhoto(url); setDefectBlob(b); })
-              }}
-              onClear={() => { setDefectPhoto(null); setDefectBlob(null); if (defectInputRef.current) defectInputRef.current.value = '' }}
-            />
-
-            {/* FOTO 3 NO CONFORME: Adicional */}
-            <PhotoSlotCard
-              title="Foto 3: Foto Adicional que Considere"
-              subtitle="Ángulo complementario, fachada del predio, o soporte adicional relevante."
-              badgeText="Obligatoria *"
-              icon={ImageIcon}
-              previewUrl={additionalPhoto}
-              inputRef={additionalInputRef}
-              onCapture={(e) => {
-                const file = e.target.files?.[0]
-                if (file) processCapturedPhoto(file, (url, b) => { setAdditionalPhoto(url); setAdditionalBlob(b); })
-              }}
-              onClear={() => { setAdditionalPhoto(null); setAdditionalBlob(null); if (additionalInputRef.current) additionalInputRef.current.value = '' }}
-            />
+            {/* Tres slots de fotos para No Conforme */}
+            <div className="space-y-1.5">
+              <span className="text-xs font-semibold text-foreground block">
+                Fotos de respaldo (3 requeridas)
+              </span>
+              <div className="grid grid-cols-3 gap-3">
+                <PhotoSlot
+                  etiqueta="Productos"
+                  icono={PackageCheck}
+                  url={fullProductsPhoto}
+                  obligatoria
+                  onCapturar={() => fullProductsInputRef.current?.click()}
+                  onQuitar={() => {
+                    setFullProductsPhoto(null)
+                    setFullProductsBlob(null)
+                    if (fullProductsInputRef.current) fullProductsInputRef.current.value = ''
+                  }}
+                />
+                <PhotoSlot
+                  etiqueta="Detalle novedad"
+                  icono={AlertOctagon}
+                  url={defectPhoto}
+                  obligatoria
+                  onCapturar={() => defectInputRef.current?.click()}
+                  onQuitar={() => {
+                    setDefectPhoto(null)
+                    setDefectBlob(null)
+                    if (defectInputRef.current) defectInputRef.current.value = ''
+                  }}
+                />
+                <PhotoSlot
+                  etiqueta="Foto adicional"
+                  icono={ImageIcon}
+                  url={additionalPhoto}
+                  obligatoria
+                  onCapturar={() => additionalInputRef.current?.click()}
+                  onQuitar={() => {
+                    setAdditionalPhoto(null)
+                    setAdditionalBlob(null)
+                    if (additionalInputRef.current) additionalInputRef.current.value = ''
+                  }}
+                />
+              </div>
+            </div>
 
             {/* Descripción Obligatoria */}
-            <div className="bg-white rounded-2xl p-4 shadow-subtle border border-rose-200">
-              <label className="text-xs font-bold text-slate-800 block mb-1">
-                Descripción o Detalles del No Conforme *
+            <div className="space-y-1.5">
+              <label htmlFor="novelty-description" className="text-xs font-semibold text-foreground block">
+                Descripción de lo sucedido *
               </label>
-              <p className="text-[11px] text-slate-500 mb-2">
-                Explica con claridad lo ocurrido para que el área de operaciones y servicio al cliente proceda.
-              </p>
               <textarea
+                id="novelty-description"
                 rows={3}
                 value={noveltyDescription}
                 onChange={(e) => setNoveltyDescription(e.target.value)}
-                placeholder="Describe los detalles del no conforme..."
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:outline-none focus:ring-2 focus:ring-rose-500"
+                placeholder="Detalla el problema presentado (mínimo 8 caracteres)..."
+                className="w-full p-3 rounded-xl border border-border bg-card text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary transition resize-none"
               />
             </div>
           </>
         )}
       </div>
 
-      {/* Fixed Bottom Submit Action */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-white/95 backdrop-blur-lg border-t border-border shadow-floating pb-safe z-30 max-w-md mx-auto">
+      {/* Hidden file inputs para captura nativa */}
+      <input
+        ref={invoiceInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) processCapturedPhoto(file, (url, b) => { setInvoicePhoto(url); setInvoiceBlob(b); })
+        }}
+        className="hidden"
+      />
+      <input
+        ref={productsInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) processCapturedPhoto(file, (url, b) => { setProductsPhoto(url); setProductsBlob(b); })
+        }}
+        className="hidden"
+      />
+      <input
+        ref={proofInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) processCapturedPhoto(file, (url, b) => { setProofPhoto(url); setProofBlob(b); })
+        }}
+        className="hidden"
+      />
+
+      <input
+        ref={fullProductsInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) processCapturedPhoto(file, (url, b) => { setFullProductsPhoto(url); setFullProductsBlob(b); })
+        }}
+        className="hidden"
+      />
+      <input
+        ref={defectInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) processCapturedPhoto(file, (url, b) => { setDefectPhoto(url); setDefectBlob(b); })
+        }}
+        className="hidden"
+      />
+      <input
+        ref={additionalInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        onChange={(e) => {
+          const file = e.target.files?.[0]
+          if (file) processCapturedPhoto(file, (url, b) => { setAdditionalPhoto(url); setAdditionalBlob(b); })
+        }}
+        className="hidden"
+      />
+
+      {/* CTA fija al fondo */}
+      <div className="fixed bottom-0 left-0 right-0 z-30 mx-auto max-w-md bg-card/95 backdrop-blur border-t border-border p-4 pb-[calc(1rem+env(safe-area-inset-bottom,0px))]">
         {mode === 'entrega' ? (
           <button
+            type="button"
             onClick={handleConfirmDelivery}
-            disabled={isSubmitting || deliveryPhotosCount < 3}
-            className="w-full py-4 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isSubmitting || deliveryPhotosCount < 3 || !receivedBy.trim()}
+            className="w-full h-12 bg-primary hover:bg-primary/90 text-primary-foreground rounded-xl font-semibold text-sm shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <CheckCircle2 className="w-5 h-5 text-white" />
-            <span>Finalizar Entrega ({deliveryPhotosCount}/3 fotos)</span>
+            <CheckCircle2 className="w-4 h-4" />
+            <span>Confirmar entrega</span>
           </button>
         ) : (
           <button
+            type="button"
             onClick={handleConfirmNovelty}
-            disabled={isSubmitting || noveltyPhotosCount < 3}
-            className="w-full py-4 px-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2 active:scale-98 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isSubmitting || noveltyPhotosCount < 3 || !noveltyDescription.trim()}
+            className="w-full h-12 bg-destructive hover:bg-destructive/90 text-white rounded-xl font-semibold text-sm shadow-sm flex items-center justify-center gap-2 active:scale-[0.99] transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <AlertTriangle className="w-5 h-5 text-white" />
-            <span>Registrar No Conforme ({noveltyPhotosCount}/3 fotos)</span>
+            <AlertTriangle className="w-4 h-4" />
+            <span>Registrar no conforme</span>
           </button>
         )}
       </div>
     </div>
   )
 }
+
+export default DeliveryCompletePage
