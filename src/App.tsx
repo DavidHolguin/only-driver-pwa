@@ -46,7 +46,7 @@ function AppContent() {
         currentPlate={driver.vehicle_plate}
       />
 
-      <Toaster position="top-center" richColors />
+      <Toaster position="bottom-center" richColors offset="5.5rem" mobileOffset="5.5rem" />
     </div>
   )
 }
