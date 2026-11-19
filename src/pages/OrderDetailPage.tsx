@@ -4,7 +4,7 @@ import { useDelivery } from '../context/DeliveryContext'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { formatDistance, formatPhoneForWhatsApp } from '../lib/utils'
 import { openExternalNavigation } from '../lib/maps-utils'
-import { GoogleRouteMap } from '../components/maps/GoogleRouteMap'
+import { RouteMap } from '../components/maps/RouteMap'
 import { 
   ArrowLeft, 
   Phone, 
@@ -61,7 +61,7 @@ export const OrderDetailPage: React.FC = () => {
     if (order.status === 'pending' || order.status === 'next') {
       markAsInTransit(order.id)
     }
-    openExternalNavigation(order.latitude, order.longitude, 'google', order.address)
+    openExternalNavigation(order)
   }
 
   return (
@@ -181,7 +181,11 @@ export const OrderDetailPage: React.FC = () => {
               <div>
                 <span className="text-xs text-slate-400 block">Dirección</span>
                 <span className="font-bold text-slate-900">{order.address}</span>
-                <span className="text-xs text-slate-600 block">{order.neighborhood}, {order.city}</span>
+                {(order.neighborhood || order.city) && (
+                  <span className="text-xs text-slate-600 block">
+                    {[order.neighborhood, order.city].filter(Boolean).join(', ')}
+                  </span>
+                )}
                 {order.address_notes && (
                   <div className="mt-1 p-2 bg-amber-50 rounded-lg text-xs text-amber-900 border border-amber-200">
                     <strong>Referencia:</strong> {order.address_notes}
@@ -192,17 +196,17 @@ export const OrderDetailPage: React.FC = () => {
           </div>
         </div>
 
-        {/* Google Maps Interactivo con Vista Pantalla Completa / Minimizado */}
+        {/* Mapa interactivo con vista pantalla completa / minimizado */}
         <div className="bg-white rounded-2xl p-3 shadow-subtle border border-border">
           <div className="flex items-center justify-between mb-2 px-1">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wider">
-              Navegación Google Maps en Vivo
+              Mapa de la Ruta
             </span>
             <span className="text-[11px] text-sky-700 font-semibold bg-sky-50 px-2 py-0.5 rounded-md">
               Toca para ampliar
             </span>
           </div>
-          <GoogleRouteMap
+          <RouteMap
             driverCoords={coords}
             orders={[order]}
             selectedOrderId={order.id}
@@ -216,7 +220,7 @@ export const OrderDetailPage: React.FC = () => {
           <div className="flex items-center justify-between mb-3">
             <span className="text-xs font-bold text-slate-500 uppercase tracking-wider flex items-center gap-1.5">
               <Package className="w-4 h-4 text-slate-400" />
-              Productos a Entregar ({order.items.length})
+              {order.items.length > 0 ? `Productos a Entregar (${order.items.length})` : 'Productos a Entregar'}
             </span>
             {order.invoice_number && (
               <span className="text-xs font-mono font-semibold text-slate-600 bg-slate-100 px-2 py-0.5 rounded">
@@ -225,19 +229,23 @@ export const OrderDetailPage: React.FC = () => {
             )}
           </div>
 
-          <div className="divide-y divide-slate-100">
-            {order.items.map((item) => (
-              <div key={item.id} className="py-2.5 flex items-center justify-between text-xs">
-                <div>
-                  <span className="font-bold text-slate-800 block text-sm">{item.name}</span>
-                  <span className="text-[11px] text-slate-400 font-mono">SKU: {item.sku}</span>
+          {order.items.length > 0 ? (
+            <div className="divide-y divide-slate-100">
+              {order.items.map((item) => (
+                <div key={item.id} className="py-2.5 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-bold text-slate-800 block text-sm">{item.name}</span>
+                    {item.sku && <span className="text-[11px] text-slate-400 font-mono">SKU: {item.sku}</span>}
+                  </div>
+                  <div className="font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
+                    Cant: {item.quantity}
+                  </div>
                 </div>
-                <div className="font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg">
-                  Cant: {item.quantity}
-                </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500">La parada no trae el detalle de productos.</p>
+          )}
 
           {/* Verification Badge */}
           <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between">
@@ -246,9 +254,11 @@ export const OrderDetailPage: React.FC = () => {
               <span>Total unidades: <strong>{order.total_units}</strong></span>
             </div>
 
-            <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" /> 100% Facturado
-            </span>
+            {order.status === 'delivered' && (
+              <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" /> Entregado
+              </span>
+            )}
           </div>
         </div>
 

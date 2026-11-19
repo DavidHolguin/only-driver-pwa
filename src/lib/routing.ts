@@ -1,30 +1,39 @@
 /**
- * Servicio de ruteo por carretera real (OSRM / OpenStreetMap)
- * Genera la geometría exacta de las carreteras que sigue el conductor
+ * Decodifica una polilínea codificada con el algoritmo de Google (Polyline Algorithm Format)
+ * a una lista de coordenadas [latitud, longitud].
  */
-export async function fetchRoadRouteGeometry(
-  points: [number, number][] // [[lat, lng], [lat, lng], ...]
-): Promise<[number, number][]> {
-  if (points.length < 2) return points
+export function decodePolyline(encoded: string): [number, number][] {
+  if (!encoded) return []
 
-  try {
-    // OSRM espera lon,lat;lon,lat...
-    // Limitar a los primeros 25 puntos para evitar URLs demasiado largas
-    const sample = points.slice(0, 25)
-    const coordString = sample.map(p => `${p[1]},${p[0]}`).join(';')
-    const url = `https://router.project-osrm.org/route/v1/driving/${coordString}?overview=full&geometries=geojson`
+  const points: [number, number][] = []
+  let index = 0
+  const len = encoded.length
+  let lat = 0
+  let lng = 0
 
-    const res = await fetch(url, { signal: AbortSignal.timeout(6000) })
-    if (!res.ok) throw new Error('OSRM status ' + res.status)
+  while (index < len) {
+    let b: number
+    let shift = 0
+    let result = 0
+    do {
+      b = encoded.charCodeAt(index++) - 63
+      result |= (b & 0x1f) << shift
+      shift += 5
+    } while (b >= 0x20)
+    const dlat = ((result & 1) !== 0 ? ~(result >> 1) : (result >> 1))
+    lat += dlat
 
-    const json = await res.json()
-    if (json.code === 'Ok' && json.routes && json.routes.length > 0) {
-      // OSRM devuelve [lon, lat], convertir a [lat, lon] para Leaflet
-      const geojsonCoords: [number, number][] = json.routes[0].geometry.coordinates
-      return geojsonCoords.map(c => [c[1], c[0]])
-    }
-  } catch (err) {
-    console.warn('[Routing] Fallback to direct polyline:', err)
+    shift = 0
+    result = 0
+    do {
+      b = encoded.charCodeAt(index++) - 63
+      result |= (b & 0x1f) << shift
+      shift += 5
+    } while (b >= 0x20)
+    const dlng = ((result & 1) !== 0 ? ~(result >> 1) : (result >> 1))
+    lng += dlng
+
+    points.push([lat / 1e5, lng / 1e5])
   }
 
   return points

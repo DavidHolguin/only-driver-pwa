@@ -13,7 +13,7 @@ import {
 import { useDelivery } from '../context/DeliveryContext'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { StopCard } from '../components/orders/StopCard'
-import { GoogleRouteMap } from '../components/maps/GoogleRouteMap'
+import { RouteMap } from '../components/maps/RouteMap'
 import { OfflineBanner } from '../components/ui/OfflineBanner'
 import { Skeleton } from '../components/ui/Skeleton'
 import { EmptyState } from '../components/ui/EmptyState'
@@ -271,7 +271,7 @@ export const RouteListPage: React.FC = () => {
       <div className="px-4 py-3 flex-1">
         {viewMode === 'map' ? (
           <div className="flex flex-col gap-3">
-            <GoogleRouteMap
+            <RouteMap
               driverCoords={coords}
               orders={orders}
               height="60vh"

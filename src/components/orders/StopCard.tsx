@@ -67,7 +67,7 @@ export const StopCard: React.FC<StopCardProps> = ({ order, className }) => {
 
   const handleNavigate = (e: React.MouseEvent) => {
     e.stopPropagation()
-    openExternalNavigation(order.latitude, order.longitude, 'google', order.customer_name)
+    openExternalNavigation(order)
   }
 
   return (

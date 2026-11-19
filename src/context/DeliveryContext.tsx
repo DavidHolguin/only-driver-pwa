@@ -1,131 +1,16 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react'
-import { DeliveryOrder, DriverProfile, PodEvidence, NoveltyEvidence } from '../types/delivery'
+import { DeliveryOrder, DriverProfile, PodEvidence, NoveltyEvidence, RutaTrazado } from '../types/delivery'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { telemetryService } from '../lib/telemetry'
 import { syncOrderStatusDual } from '../lib/dualSync'
-import { fetchDriverAssignedOrders } from '../lib/driverSync'
+import { fetchRutaConductor } from '../lib/driverSync'
 import { 
   findFleetMemberByPlate, 
   buildDriverProfileFromFleet, 
   DriverFleetMember, 
-  OFFICIAL_FLEET,
-  normalizePlate 
+  OFFICIAL_FLEET
 } from '../lib/fleetData'
 import { toast } from 'sonner'
-
-// Pedidos de fallback inicial para Only Home
-const INITIAL_ORDERS: DeliveryOrder[] = [
-  {
-    id: 'ord-001',
-    order_number: 'PED-10492',
-    opv: 'OPV-8820',
-    invoice_number: 'FE-99321',
-    sequence_order: 1,
-    customer_name: 'Camila Restrepo Morales',
-    customer_phone: '3158942211',
-    customer_document: '1020789456',
-    customer_email: 'camila.restrepo@example.com',
-    address: 'Calle 93B # 13-45 Apto 402',
-    neighborhood: 'Chicó Norte',
-    city: 'Bogotá D.C.',
-    address_notes: 'Edificio Torre Ópalo, dejar en portería o timbrar al 402',
-    latitude: 4.6782,
-    longitude: -74.0534,
-    items: [
-      { id: 'it-1', name: 'Montura Oftálmica Carrera Acetato Blue', sku: 'OPT-CAR-882', quantity: 1 },
-      { id: 'it-2', name: 'Líquido Limpiador Antireflejo 60ml Only', sku: 'ACC-CLN-060', quantity: 2 }
-    ],
-    total_units: 3,
-    status: 'next'
-  },
-  {
-    id: 'ord-002',
-    order_number: 'PED-10495',
-    opv: 'OPV-8824',
-    invoice_number: 'FE-99325',
-    sequence_order: 2,
-    customer_name: 'Andrés Felipe Gómez',
-    customer_phone: '3007654321',
-    customer_document: '80123984',
-    customer_email: 'andres.gomez@gmail.com',
-    address: 'Carrera 15 # 104-20 Of 301',
-    neighborhood: 'Santa Bárbara',
-    city: 'Bogotá D.C.',
-    address_notes: 'Edificio Empresarial 104, acceso peatonal',
-    latitude: 4.6894,
-    longitude: -74.0489,
-    items: [
-      { id: 'it-3', name: 'Gafas de Sol Ray-Ban Polarized Aviator Gold', sku: 'SOL-RAY-AV1', quantity: 1 }
-    ],
-    total_units: 1,
-    status: 'pending'
-  },
-  {
-    id: 'ord-003',
-    order_number: 'PED-10501',
-    opv: 'OPV-8830',
-    invoice_number: 'FE-99330',
-    sequence_order: 3,
-    customer_name: 'Valentina Soto Jaramillo',
-    customer_phone: '3189901234',
-    customer_document: '1032456789',
-    customer_email: 'valen.soto@hotmail.com',
-    address: 'Calle 116 # 19-34 Casa 2',
-    neighborhood: 'Pepe Sierra',
-    city: 'Bogotá D.C.',
-    address_notes: 'Conjunto cerrado Los Cerezos, avisar al vigilante Pedro',
-    latitude: 4.6985,
-    longitude: -74.0542,
-    items: [
-      { id: 'it-4', name: 'Lentes de Contacto Acuvue Oasys Quincenales (Caja x6)', sku: 'LEN-ACU-OAS', quantity: 2 },
-      { id: 'it-5', name: 'Solución Multipropósito Renu Plus 355ml', sku: 'ACC-SOL-REN', quantity: 1 }
-    ],
-    total_units: 3,
-    status: 'pending'
-  },
-  {
-    id: 'ord-004',
-    order_number: 'PED-10512',
-    opv: 'OPV-8839',
-    invoice_number: 'FE-99341',
-    sequence_order: 4,
-    customer_name: 'Santiago Méndez Castro',
-    customer_phone: '3112345678',
-    customer_document: '79845120',
-    address: 'Calle 140 # 11-18 Apto 503',
-    neighborhood: 'Cedritos',
-    city: 'Bogotá D.C.',
-    address_notes: 'Frente al parque de Cedritos',
-    latitude: 4.7188,
-    longitude: -74.0381,
-    items: [
-      { id: 'it-6', name: 'Montura de Seguridad Graduada Industrial Only Guard', sku: 'SEG-GRD-IND', quantity: 1 }
-    ],
-    total_units: 1,
-    status: 'pending'
-  },
-  {
-    id: 'ord-005',
-    order_number: 'PED-10520',
-    opv: 'OPV-8845',
-    invoice_number: 'FE-99350',
-    sequence_order: 5,
-    customer_name: 'Diana Patricia Salazar',
-    customer_phone: '3208765432',
-    customer_document: '52890123',
-    address: 'Carrera 58 # 128-40 Torre 2 Apt 1104',
-    neighborhood: 'Niza Antigua',
-    city: 'Bogotá D.C.',
-    address_notes: 'Portería sobre la transversal',
-    latitude: 4.7142,
-    longitude: -74.0725,
-    items: [
-      { id: 'it-7', name: 'Gafas de Sol Oakley Holbrook Matte Black', sku: 'SOL-OAK-HLB', quantity: 1 }
-    ],
-    total_units: 1,
-    status: 'pending'
-  }
-]
 
 const DEFAULT_FLEET_MEMBER = OFFICIAL_FLEET[2] // SQF 187 Mauricio Valencia
 const INITIAL_DRIVER: DriverProfile = buildDriverProfileFromFleet(DEFAULT_FLEET_MEMBER)
@@ -134,6 +19,11 @@ interface DeliveryContextType {
   orders: DeliveryOrder[]
   driver: DriverProfile
   isLoadingOrders: boolean
+  ordersError?: string | null
+  trazado: RutaTrazado | null
+  route_polyline?: string | null
+  route_distance_m?: number | null
+  route_duration_s?: number | null
   isPlateModalOpen: boolean
   setIsPlateModalOpen: (open: boolean) => void
   selectedOrderId: string | null
@@ -174,35 +64,77 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     return INITIAL_DRIVER
   })
 
+  // Pedidos del viaje activo (inicialmente vacío)
   const [orders, setOrders] = useState<DeliveryOrder[]>(() => {
     const saved = localStorage.getItem('only_driver_orders_v3')
-    return saved ? JSON.parse(saved) : INITIAL_ORDERS
+    return saved ? JSON.parse(saved) : []
+  })
+
+  // Trazado de ruta devuelto por el servidor
+  const [trazado, setTrazado] = useState<RutaTrazado | null>(() => {
+    const saved = localStorage.getItem('only_driver_trazado_v3')
+    if (saved) {
+      try { return JSON.parse(saved) } catch {}
+    }
+    return null
   })
 
   const [isLoadingOrders, setIsLoadingOrders] = useState(false)
+  const [ordersError, setOrdersError] = useState<string | null>(null)
   const [isPlateModalOpen, setIsPlateModalOpen] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const { coords } = useGeolocation(driver.is_tracking_active)
 
-  // Función para recargar pedidos asignados desde Supabase
+  // La identidad del conductor manda el servidor: la flota local solo sirve de respaldo visual.
+  const sincronizarConductor = useCallback((res: any) => {
+    const viaje = res?.viaje
+    const nombre = viaje?.conductor?.nombre
+    if (!nombre) return
+    setDriver(prev => {
+      if (prev.name === nombre && (!viaje.placa || prev.vehicle_plate === viaje.placa)) return prev
+      const next = {
+        ...prev,
+        name: nombre,
+        // Teléfono y tipo de vehículo solo si el servidor los entrega: nada de datos de la flota demo.
+        phone: viaje.conductor?.telefono || '',
+        vehicle_type: undefined,
+        vehicle_plate: viaje.placa || prev.vehicle_plate
+      }
+      localStorage.setItem('only_driver_profile_v3', JSON.stringify(next))
+      return next
+    })
+  }, [])
+
+  // Recargar pedidos asignados desde la API oficial de logística
   const reloadAssignedOrders = useCallback(async () => {
     if (!driver.vehicle_plate) return
     setIsLoadingOrders(true)
+    setOrdersError(null)
     try {
-      const fetched = await fetchDriverAssignedOrders(driver.vehicle_plate, driver.active_route_name)
-      if (fetched && fetched.length > 0) {
-        setOrders(fetched)
-        localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+      const res = await fetchRutaConductor(driver.vehicle_plate)
+      const fetched = res.orders || res
+      sincronizarConductor(res)
+      setOrders(fetched)
+      setTrazado(res.trazado ?? null)
+      localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+      if (res.trazado) {
+        localStorage.setItem('only_driver_trazado_v3', JSON.stringify(res.trazado))
+      } else {
+        localStorage.removeItem('only_driver_trazado_v3')
+      }
+      if (fetched.length > 0) {
         toast.success(`📥 ${fetched.length} pedidos cargados para el vehículo ${driver.vehicle_plate}`)
       } else {
-        console.log(`[Delivery] No se encontraron nuevos pedidos en BD para ${driver.vehicle_plate}. Conservando actuales.`)
+        console.log(`[Delivery] No se encontraron pedidos para ${driver.vehicle_plate}.`)
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('[Delivery] Error al recargar pedidos:', e)
+      setOrdersError(e?.message || 'Error al recargar pedidos')
+      throw e
     } finally {
       setIsLoadingOrders(false)
     }
-  }, [driver.vehicle_plate, driver.active_route_name])
+  }, [driver.vehicle_plate])
 
   // Detección de Enlace Mágico / Parámetros URL al cargar la PWA
   useEffect(() => {
@@ -211,8 +143,6 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       const plateParam = url.searchParams.get('placa')
       const tokenParam = url.searchParams.get('token')
       const rutaParam = url.searchParams.get('ruta')
-      const pedidosParam = url.searchParams.get('pedidos')
-      const pedidosList = pedidosParam ? pedidosParam.split(',').filter(Boolean) : undefined
 
       if (plateParam) {
         const found = findFleetMemberByPlate(plateParam)
@@ -224,27 +154,47 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           setDriver(newProfile)
           localStorage.setItem('only_driver_assigned_plate', found.placa)
           localStorage.setItem('only_driver_profile_v3', JSON.stringify(newProfile))
-          toast.success(`👋 ¡Bienvenido ${found.nombre}! Vehículo ${found.placa} vinculado exitosamente`, {
-            duration: 6000
-          })
+          toast.success(`Vehículo ${found.placa} vinculado`, { duration: 4000 })
 
-          // Cargar inmediatamente los pedidos asignados a esta placa
-          fetchDriverAssignedOrders(found.placa, rutaParam || found.rutas_permitidas, pedidosList).then(fetched => {
-            if (fetched && fetched.length > 0) {
-              setOrders(fetched)
-              localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+          setIsLoadingOrders(true)
+          fetchRutaConductor(found.placa).then(res => {
+            const fetched = res.orders || res
+            sincronizarConductor(res)
+            setOrders(fetched)
+            setTrazado(res.trazado ?? null)
+            localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+            if (res.trazado) {
+              localStorage.setItem('only_driver_trazado_v3', JSON.stringify(res.trazado))
+            } else {
+              localStorage.removeItem('only_driver_trazado_v3')
             }
+          }).catch(err => {
+            console.warn('[Delivery] Error cargando ruta de enlace mágico:', err)
+          }).finally(() => {
+            setIsLoadingOrders(false)
           })
         }
       } else {
-        // Si no viene en URL pero existe placa previa en localStorage, chequear pedidos en BD
-        const currentPlate = localStorage.getItem('only_driver_assigned_plate')
+        const currentPlate = localStorage.getItem('only_driver_assigned_plate') || driver.vehicle_plate
         if (currentPlate) {
-          fetchDriverAssignedOrders(currentPlate, driver.active_route_name, pedidosList).then(fetched => {
+          setIsLoadingOrders(true)
+          fetchRutaConductor(currentPlate).then(res => {
+            const fetched = res.orders || res
+            sincronizarConductor(res)
             if (fetched && fetched.length > 0) {
               setOrders(fetched)
+              setTrazado(res.trazado ?? null)
               localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+              if (res.trazado) {
+                localStorage.setItem('only_driver_trazado_v3', JSON.stringify(res.trazado))
+              } else {
+                localStorage.removeItem('only_driver_trazado_v3')
+              }
             }
+          }).catch(err => {
+            console.warn('[Delivery] Error cargando ruta inicial:', err)
+          }).finally(() => {
+            setIsLoadingOrders(false)
           })
         }
       }
@@ -260,12 +210,21 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     localStorage.setItem('only_driver_assigned_plate', member.placa)
     localStorage.setItem('only_driver_profile_v3', JSON.stringify(newProfile))
 
-    // Cargar pedidos para el nuevo vehículo
-    fetchDriverAssignedOrders(member.placa, member.rutas_permitidas).then(fetched => {
-      if (fetched && fetched.length > 0) {
-        setOrders(fetched)
-        localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+    setIsLoadingOrders(true)
+    fetchRutaConductor(member.placa).then(res => {
+      const fetched = res.orders || res
+      setOrders(fetched)
+      setTrazado(res.trazado ?? null)
+      localStorage.setItem('only_driver_orders_v3', JSON.stringify(fetched))
+      if (res.trazado) {
+        localStorage.setItem('only_driver_trazado_v3', JSON.stringify(res.trazado))
+      } else {
+        localStorage.removeItem('only_driver_trazado_v3')
       }
+    }).catch(err => {
+      console.warn('[Delivery] Error cambiando vehículo:', err)
+    }).finally(() => {
+      setIsLoadingOrders(false)
     })
   }, [])
 
@@ -432,6 +391,11 @@ export const DeliveryProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         orders,
         driver,
         isLoadingOrders,
+        ordersError,
+        trazado,
+        route_polyline: trazado?.polyline ?? null,
+        route_distance_m: trazado?.distancia_m ?? null,
+        route_duration_s: trazado?.duracion_s ?? null,
         isPlateModalOpen,
         setIsPlateModalOpen,
         selectedOrderId,

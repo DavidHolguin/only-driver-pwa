@@ -104,6 +104,7 @@ class TelemetryService {
     )
 
     for (const order of pendingOrders) {
+      if (order.latitude === null || order.longitude === null) continue
       const distance = calculateDistanceMeters(
         point.latitude,
         point.longitude,

@@ -1,12 +1,14 @@
-import React, { useEffect, useRef, useState } from 'react'
+import React, { useEffect, useRef, useState, useMemo } from 'react'
 import L from 'leaflet'
-import { DeliveryOrder, TelemetryPoint } from '../../types/delivery'
-import { fetchRoadRouteGeometry } from '../../lib/routing'
-import { LocateFixed, Layers, Maximize2, Minimize2, Navigation, Compass } from 'lucide-react'
+import { DeliveryOrder, TelemetryPoint, RutaTrazado } from '../../types/delivery'
+import { decodePolyline } from '../../lib/routing'
+import { useDelivery } from '../../context/DeliveryContext'
+import { LocateFixed, Layers, Maximize2, Minimize2, Compass } from 'lucide-react'
 
-interface GoogleRouteMapProps {
+export interface RouteMapProps {
   driverCoords: TelemetryPoint
   orders: DeliveryOrder[]
+  trazado?: RutaTrazado | null
   selectedOrderId?: string
   onSelectOrder?: (orderId: string) => void
   interactive?: boolean
@@ -17,9 +19,10 @@ interface GoogleRouteMapProps {
   onToggleExpand?: () => void
 }
 
-export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
+export const RouteMap: React.FC<RouteMapProps> = ({
   driverCoords,
   orders,
+  trazado: propsTrazado,
   selectedOrderId,
   onSelectOrder,
   interactive = true,
@@ -29,6 +32,9 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
   isExpanded: externalIsExpanded,
   onToggleExpand: externalOnToggleExpand
 }) => {
+  const { trazado: contextTrazado } = useDelivery()
+  const effectiveTrazado = propsTrazado !== undefined ? propsTrazado : contextTrazado
+
   const [internalExpanded, setInternalExpanded] = useState(false)
   const isExpanded = externalIsExpanded !== undefined ? externalIsExpanded : internalExpanded
   const handleToggleExpand = externalOnToggleExpand || (() => setInternalExpanded(prev => !prev))
@@ -38,24 +44,39 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
   const driverMarkerRef = useRef<L.Marker | null>(null)
   const markersLayerRef = useRef<L.LayerGroup | null>(null)
   const routePolylineRef = useRef<L.Polyline | null>(null)
-  const [isNavigatingRoad, setIsNavigatingRoad] = useState(false)
 
-  // Inicializar mapa interactivo (Estilo Google Maps Vectorial Clean)
+  // Filtrar paradas con coordenadas válidas
+  const ordersWithCoords = useMemo(() => {
+    return orders.filter(
+      (o): o is DeliveryOrder & { latitude: number; longitude: number } =>
+        o.latitude !== null &&
+        o.longitude !== null &&
+        !Number.isNaN(Number(o.latitude)) &&
+        !Number.isNaN(Number(o.longitude))
+    )
+  }, [orders])
+
+  const hasCoords = ordersWithCoords.length > 0
+  const hasPolyline = Boolean(effectiveTrazado?.polyline)
+
+  // Inicializar mapa si existen coordenadas
   useEffect(() => {
-    if (!mapContainerRef.current) return
+    if (!hasCoords || !mapContainerRef.current) return
 
     if (!mapInstanceRef.current) {
+      const initialCenter: [number, number] = ordersWithCoords[0]
+        ? [ordersWithCoords[0].latitude, ordersWithCoords[0].longitude]
+        : [driverCoords.latitude, driverCoords.longitude]
+
       const map = L.map(mapContainerRef.current, {
-        center: [driverCoords.latitude, driverCoords.longitude],
+        center: initialCenter,
         zoom: 14,
         zoomControl: false,
-        attributionControl: false
+        attributionControl: true
       })
 
-      // Tile layer de alta definición inspirado en la paleta oficial de Google Maps
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
-        maxZoom: 20,
-        subdomains: 'abcd'
+      L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 19
       }).addTo(map)
 
       markersLayerRef.current = L.layerGroup().addTo(map)
@@ -68,9 +89,9 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
         mapInstanceRef.current = null
       }
     }
-  }, [])
+  }, [hasCoords])
 
-  // Invalidar tamaño al expandir / minimizar para redibujar el canvas
+  // Invalidar tamaño al alternar pantalla completa
   useEffect(() => {
     const timer = setTimeout(() => {
       if (mapInstanceRef.current) {
@@ -80,10 +101,10 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
     return () => clearTimeout(timer)
   }, [isExpanded])
 
-  // Actualizar marcador del conductor en tiempo real con brújula/dirección
+  // Actualizar marcador del conductor en tiempo real
   useEffect(() => {
     const map = mapInstanceRef.current
-    if (!map) return
+    if (!map || !hasCoords) return
 
     const driverIcon = L.divIcon({
       className: 'driver-live-marker',
@@ -110,43 +131,40 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
       driverMarkerRef.current.setLatLng([driverCoords.latitude, driverCoords.longitude])
       driverMarkerRef.current.setIcon(driverIcon)
     }
-  }, [driverCoords])
+  }, [driverCoords, hasCoords])
 
-  // Actualizar marcadores de pedidos y trazado real por carretera (Google Maps Driving)
+  // Renderizar marcadores y trazado según disponibilidad
   useEffect(() => {
     const map = mapInstanceRef.current
     const layer = markersLayerRef.current
-    if (!map || !layer) return
+    if (!map || !layer || !hasCoords) return
 
     layer.clearLayers()
 
-    // Waypoints ordenados por secuencia
-    const pendingOrders = orders
-      .filter(o => o.status !== 'delivered' && o.status !== 'failed')
-      .sort((a, b) => a.sequence_order - b.sequence_order)
-
-    const waypoints: [number, number][] = [
-      [driverCoords.latitude, driverCoords.longitude],
-      ...pendingOrders.map(o => [o.latitude, o.longitude] as [number, number])
-    ]
-
-    orders.forEach((order) => {
+    // 1. Dibujar marcadores usando tokens de tailwind.config.ts
+    // Entregado: driver.success (#10B981)
+    // Siguiente / En ruta: driver.accent (#0284C7) / driver.warning (#F59E0B)
+    // Pendiente: driver.blue (#003B66)
+    // Fallido: driver.danger (#EF4444)
+    ordersWithCoords.forEach((order) => {
       const isSelected = order.id === selectedOrderId
       const isDelivered = order.status === 'delivered'
       const isFailed = order.status === 'failed'
       const isNext = order.status === 'next' || order.status === 'in_transit'
 
-      let bgBadge = 'bg-[#003B66]'
+      let bgBadge = 'bg-[#003B66]' // driver.blue
       let ringStyle = ''
-      if (isDelivered) bgBadge = 'bg-emerald-600'
-      else if (isFailed) bgBadge = 'bg-rose-600'
-      else if (isNext) {
-        bgBadge = 'bg-amber-500 text-slate-950 font-extrabold'
-        ringStyle = 'ring-4 ring-amber-300/80 animate-pulse'
+      if (isDelivered) {
+        bgBadge = 'bg-[#10B981]' // driver.success
+      } else if (isFailed) {
+        bgBadge = 'bg-[#EF4444]' // driver.danger
+      } else if (isNext) {
+        bgBadge = 'bg-[#0284C7] text-white font-extrabold' // driver.accent
+        ringStyle = 'ring-4 ring-[#0284C7]/50 animate-pulse'
       }
 
       if (isSelected) {
-        ringStyle += ' scale-125 ring-4 ring-sky-500'
+        ringStyle += ' scale-125 ring-4 ring-sky-400'
       }
 
       const pinIcon = L.divIcon({
@@ -174,33 +192,74 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
       layer.addLayer(marker)
     })
 
-    // Consultar geometría de carretera real por OSRM
-    if (waypoints.length > 1) {
-      setIsNavigatingRoad(true)
-      fetchRoadRouteGeometry(waypoints).then((roadCoords) => {
-        if (routePolylineRef.current && map) {
-          map.removeLayer(routePolylineRef.current)
-        }
+    // 2. Limpiar trazado anterior
+    if (routePolylineRef.current) {
+      map.removeLayer(routePolylineRef.current)
+      routePolylineRef.current = null
+    }
 
-        // Trazado estilo navegación asistida Google Maps (Línea azul brillante de alta visibilidad)
-        routePolylineRef.current = L.polyline(roadCoords as L.LatLngExpression[], {
-          color: '#1a73e8', // Google Maps Primary Blue
-          weight: 6,
+    // 3. Pinta el trazado del servidor cuando existe
+    if (effectiveTrazado?.polyline) {
+      const polyCoords = decodePolyline(effectiveTrazado.polyline)
+      if (polyCoords.length > 0) {
+        routePolylineRef.current = L.polyline(polyCoords, {
+          color: '#003B66', // driver.blue
+          weight: 5,
           opacity: 0.9,
           lineJoin: 'round',
           lineCap: 'round'
         }).addTo(map)
 
-        setIsNavigatingRoad(false)
-      }).catch(() => {
-        setIsNavigatingRoad(false)
-      })
-    } else {
-      if (routePolylineRef.current) {
-        map.removeLayer(routePolylineRef.current)
+        // fitBounds al trazado
+        const bounds = L.latLngBounds(polyCoords)
+        map.fitBounds(bounds, { padding: [40, 40] })
+        return
       }
     }
-  }, [orders, selectedOrderId, driverCoords, onSelectOrder])
+
+    // 4. Si no hay trazado pero sí paradas con coordenadas:
+    // Une las paradas con una línea punteada y fitBounds a lo que haya
+    const sorted = [...ordersWithCoords].sort((a, b) => a.sequence_order - b.sequence_order)
+    const points: [number, number][] = [
+      [driverCoords.latitude, driverCoords.longitude],
+      ...sorted.map(o => [o.latitude, o.longitude] as [number, number])
+    ]
+
+    if (points.length >= 2) {
+      routePolylineRef.current = L.polyline(points, {
+        color: '#0284C7', // driver.accent
+        weight: 4,
+        opacity: 0.8,
+        dashArray: '8, 8',
+        lineJoin: 'round',
+        lineCap: 'round'
+      }).addTo(map)
+    }
+
+    // fitBounds a los puntos disponibles
+    if (points.length > 1) {
+      const bounds = L.latLngBounds(points)
+      map.fitBounds(bounds, { padding: [40, 40] })
+    }
+  }, [ordersWithCoords, selectedOrderId, driverCoords, onSelectOrder, effectiveTrazado, hasCoords])
+
+  // Si ninguna parada tiene coordenadas, mostrar estado vacío
+  if (!hasCoords) {
+    return (
+      <div
+        className={`relative w-full rounded-2xl overflow-hidden border border-border shadow-card bg-slate-100 flex flex-col items-center justify-center p-6 text-center ${className}`}
+        style={{ height }}
+      >
+        <div className="flex flex-col items-center justify-center gap-2 max-w-xs">
+          <div className="p-3 bg-white rounded-full shadow-sm border border-border">
+            <Compass className="w-6 h-6 text-slate-500" />
+          </div>
+          <p className="font-semibold text-slate-800 text-sm">Sin ubicación en este viaje</p>
+          <p className="text-xs text-slate-500">Ninguna de las paradas tiene coordenadas asignadas</p>
+        </div>
+      </div>
+    )
+  }
 
   // Centrar mapa en conductor
   const handleRecenter = () => {
@@ -213,13 +272,13 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
 
   // Ajustar vista para encuadrar toda la ruta
   const handleFitRoute = () => {
-    if (!mapInstanceRef.current || orders.length === 0) return
+    if (!mapInstanceRef.current) return
     const points: L.LatLngExpression[] = [
       [driverCoords.latitude, driverCoords.longitude],
-      ...orders.map((o) => [o.latitude, o.longitude] as [number, number])
+      ...ordersWithCoords.map((o) => [o.latitude, o.longitude] as [number, number])
     ]
     const bounds = L.latLngBounds(points)
-    mapInstanceRef.current.fitBounds(bounds, { padding: [50, 50] })
+    mapInstanceRef.current.fitBounds(bounds, { padding: [40, 40] })
   }
 
   const containerHeight = isExpanded ? 'calc(100vh - 120px)' : height
@@ -233,7 +292,7 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
     >
       <div ref={mapContainerRef} className="w-full h-full z-0" />
 
-      {/* Floating Map Controls for Driver */}
+      {/* Controles de mapa flotantes */}
       {interactive && (
         <div className="absolute top-3 right-3 z-[400] flex flex-col gap-2">
           {allowFullscreenToggle && (
@@ -268,16 +327,29 @@ export const GoogleRouteMap: React.FC<GoogleRouteMapProps> = ({
         </div>
       )}
 
-      {/* Driver GPS Status Pill Overlay */}
+      {/* Pill indicador de estado del trazado */}
       <div className="absolute bottom-3 left-3 z-[400] bg-[#001F36]/90 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-white/10 shadow-lg flex items-center gap-2 text-white">
-        <span className="relative flex h-2.5 w-2.5">
-          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-          <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
-        </span>
-        <span className="text-[11px] font-semibold font-mono tracking-tight text-slate-100">
-          {isNavigatingRoad ? 'Calculando carreteras...' : 'Ruta por Carretera Activa'}
-        </span>
+        {hasPolyline ? (
+          <>
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+            </span>
+            <span className="text-[11px] font-semibold tracking-tight text-slate-100">
+              Ruta trazada
+            </span>
+          </>
+        ) : (
+          <>
+            <span className="w-2 h-2 rounded-full bg-amber-400"></span>
+            <span className="text-[11px] font-semibold tracking-tight text-slate-100">
+              Trazado no disponible
+            </span>
+          </>
+        )}
       </div>
     </div>
   )
 }
+
+export const GoogleRouteMap = RouteMap

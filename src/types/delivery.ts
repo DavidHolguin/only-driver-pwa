@@ -74,8 +74,8 @@ export interface DeliveryOrder {
   neighborhood: string
   city: string
   address_notes?: string
-  latitude: number
-  longitude: number
+  latitude: number | null
+  longitude: number | null
   
   // Pedido (100% Pago y Facturado)
   items: OrderItem[]
@@ -95,11 +95,19 @@ export interface DeliveryOrder {
   updated_at?: string
 }
 
+export interface RutaTrazado {
+  polyline: string
+  distancia_m: number
+  duracion_s: number
+  calculado_at?: string
+  origen?: string
+}
+
 export interface DriverProfile {
   id: string
   name: string
   phone: string
-  vehicle_type: 'moto' | 'furgon' | 'camion'
+  vehicle_type?: 'moto' | 'furgon' | 'camion'
   vehicle_plate: string
   active_route_name: string
   city: string

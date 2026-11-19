@@ -1,9 +1,6 @@
 import { supabase } from '../lib/supabase'
 import { hoyBogota } from './fecha'
 
-const GAS_URL = "https://script.google.com/macros/s/AKfycbx8pHOHRVkE7G170ZFBSkXcuv-IuQPzk8x52IVfZ1EKOhIQ8F7RXd-8ZjKg1duD8r0qYQ/exec";
-const GAS_TOKEN = "OH_SECRET_AGY_2026";
-
 export interface DualSyncResult {
   ok: boolean;
   supabase: boolean;
@@ -12,15 +9,13 @@ export interface DualSyncResult {
 }
 
 /**
- * Sincroniza el cambio de estado de un pedido en ambas fuentes:
- * 1. Supabase (tabla 'pedidos' del ecosistema)
- * 2. Google Sheets (hoja 'PEDIDOS' mediante Apps Script doPost)
+ * Sincroniza el cambio de estado de un pedido en la base de datos Supabase.
  */
 export async function syncOrderStatusDual(
   numeroPedido: string,
   nuevoEstado: 'EN RUTA' | 'ENTREGADO' | 'DEVUELTO' | 'NO CONFORME',
-  observaciones: string,
-  usuario: string = 'Conductor PWA'
+  _observaciones: string,
+  _usuario: string = 'Conductor PWA'
 ): Promise<DualSyncResult> {
   const cleanNumber = String(numeroPedido || '').trim().replace(/^#/, '');
   if (!cleanNumber) {
@@ -34,7 +29,7 @@ export async function syncOrderStatusDual(
     error: null
   };
 
-  // 1. Espejo en Supabase (base del ecosistema)
+  // Espejo en Supabase (base del ecosistema)
   try {
     const estadoSupa = nuevoEstado === 'EN RUTA' 
       ? 'en_ruta' 
@@ -60,35 +55,11 @@ export async function syncOrderStatusDual(
 
     if (!supaErr) {
       results.supabase = true;
-    }
-  } catch (err) {
-    console.warn('[syncOrderStatusDual] Error actualizando Supabase:', err);
-  }
-
-  // 2. Espejo en Google Sheets (Hoja de Reservas y Logística)
-  try {
-    const res = await fetch(GAS_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({
-        token: GAS_TOKEN,
-        action: 'cambiarEstadoPedido',
-        args: {
-          numero: cleanNumber,
-          nuevoEstado: nuevoEstado === 'NO CONFORME' ? 'DEVUELTO' : nuevoEstado,
-          observaciones,
-          usuario
-        }
-      })
-    });
-    const json = await res.json().catch(() => ({}));
-    if (json?.ok) {
-      results.googleSheets = true;
     } else {
-      results.error = json?.error;
+      results.error = supaErr.message;
     }
   } catch (err: any) {
-    console.warn('[syncOrderStatusDual] Error actualizando Google Sheets:', err);
+    console.warn('[syncOrderStatusDual] Error actualizando Supabase:', err);
     results.error = err?.message || String(err);
   }
 
