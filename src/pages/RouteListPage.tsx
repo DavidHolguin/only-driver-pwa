@@ -241,28 +241,28 @@ export const RouteListPage: React.FC = () => {
             onClick={() => setViewMode('list')}
             aria-label="Vista Lista"
             className={cn(
-              'h-full px-1.5 min-[380px]:px-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition',
+              'h-full px-1.5 min-[420px]:px-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition',
               viewMode === 'list'
                 ? 'bg-primary text-primary-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
             <List className="w-4 h-4" />
-            <span className="hidden min-[380px]:inline">Lista</span>
+            <span className="hidden min-[420px]:inline">Lista</span>
           </button>
           <button
             type="button"
             onClick={() => setViewMode('map')}
             aria-label="Vista Mapa"
             className={cn(
-              'h-full px-1.5 min-[380px]:px-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition',
+              'h-full px-1.5 min-[420px]:px-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition',
               viewMode === 'map'
                 ? 'bg-primary text-primary-foreground shadow-sm'
                 : 'text-muted-foreground hover:text-foreground'
             )}
           >
             <Map className="w-4 h-4" />
-            <span className="hidden min-[380px]:inline">Mapa</span>
+            <span className="hidden min-[420px]:inline">Mapa</span>
           </button>
         </div>
       </div>
