@@ -1,3 +1,6 @@
+import { format } from "date-fns";
+import { es } from "date-fns/locale";
+
 /**
  * Fechas de pared de la operación: America/Bogota (UTC-5, sin horario de verano).
  *
@@ -19,3 +22,10 @@ export function fechaBogota(value: string | Date): string {
   const d = value instanceof Date ? value : new Date(value);
   return Number.isNaN(d.getTime()) ? String(value) : hoyBogota(d);
 }
+
+/** Formato CRM con date-fns locale es ('5 nov 2026'), nunca ISO. */
+export function formatoFechaCRM(value: string | Date = new Date()): string {
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : format(d, "d MMM yyyy", { locale: es });
+}
+

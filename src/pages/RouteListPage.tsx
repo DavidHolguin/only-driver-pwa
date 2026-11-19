@@ -1,137 +1,274 @@
-import React, { useState } from 'react'
+import React, { useState, useMemo } from 'react'
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu'
+import {
+  Search,
+  X,
+  Check,
+  ChevronDown,
+  List,
+  Map,
+  Truck,
+  AlertTriangle,
+} from 'lucide-react'
 import { useDelivery } from '../context/DeliveryContext'
 import { useGeolocation } from '../hooks/useGeolocation'
 import { StopCard } from '../components/orders/StopCard'
 import { GoogleRouteMap } from '../components/maps/GoogleRouteMap'
-import { Map, List, CheckCircle2, Clock, Navigation, AlertCircle, Package } from 'lucide-react'
+import { OfflineBanner } from '../components/ui/OfflineBanner'
+import { Skeleton } from '../components/ui/Skeleton'
+import { EmptyState } from '../components/ui/EmptyState'
+import { formatoFechaCRM } from '../lib/fecha'
+import { cn } from '../lib/utils'
+
+type FilterType = 'all' | 'pending' | 'delivered'
+
+const FILTER_LABELS: Record<FilterType, string> = {
+  all: 'Todas',
+  pending: 'Pendientes',
+  delivered: 'Entregadas',
+}
 
 export const RouteListPage: React.FC = () => {
-  const { orders, driver, stats } = useDelivery()
+  const { orders, driver, stats, isLoadingOrders, reloadAssignedOrders } = useDelivery()
   const { coords } = useGeolocation(driver.is_tracking_active)
-  
+
   const [viewMode, setViewMode] = useState<'list' | 'map'>('list')
-  const [filter, setFilter] = useState<'all' | 'pending' | 'delivered'>('all')
+  const [filter, setFilter] = useState<FilterType>('all')
+  const [search, setSearch] = useState('')
+  const [hasError, setHasError] = useState(false)
+  const [isRetrying, setIsRetrying] = useState(false)
 
-  const filteredOrders = orders.filter((order) => {
-    if (filter === 'pending') return order.status !== 'delivered' && order.status !== 'failed'
-    if (filter === 'delivered') return order.status === 'delivered'
-    return true
-  })
+  const hasActiveFilter = search.trim() !== '' || filter !== 'all'
 
-  // Siguiente parada activa
-  const currentStop = orders.find((o) => o.status === 'in_transit' || o.status === 'next')
+  const handleRetry = async () => {
+    setIsRetrying(true)
+    try {
+      await reloadAssignedOrders()
+      setHasError(false)
+    } catch {
+      setHasError(true)
+    } finally {
+      setIsRetrying(false)
+    }
+  }
+
+  // Filtrado de paradas
+  const filteredOrders = useMemo(() => {
+    return orders.filter((order) => {
+      // Estado
+      const st = order.status.toLowerCase()
+      const isDelivered = st === 'delivered' || st === 'entregado' || st === 'entregada'
+      const isFailed = st === 'failed' || st === 'no_conforme' || st === 'no conforme'
+
+      if (filter === 'pending' && (isDelivered || isFailed)) return false
+      if (filter === 'delivered' && !isDelivered) return false
+
+      // Buscador
+      if (search.trim()) {
+        const q = search.trim().toLowerCase()
+        const matchName = order.customer_name?.toLowerCase().includes(q)
+        const matchAddress = order.address?.toLowerCase().includes(q)
+        const matchNeighborhood = order.neighborhood?.toLowerCase().includes(q)
+        const matchOrderNumber = order.order_number?.toLowerCase().includes(q)
+        const matchSeq = order.sequence_order?.toString() === q
+        return matchName || matchAddress || matchNeighborhood || matchOrderNumber || matchSeq
+      }
+
+      return true
+    })
+  }, [orders, filter, search])
+
+  // Parada activa siguiente
+  const currentStop = orders.find(
+    (o) => o.status === 'in_transit' || o.status === 'next'
+  )
+
+  // 1. Estado de carga: 4 skeletons
+  if (isLoadingOrders) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background pb-20">
+        <OfflineBanner />
+        <div className="bg-card border-b border-border px-4 py-2.5 flex items-center justify-between gap-3">
+          <div className="flex-1 h-1 bg-secondary rounded-full overflow-hidden" />
+          <Skeleton className="w-8 h-3 rounded" />
+        </div>
+        <div className="px-4 py-4 space-y-3">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <Skeleton key={i} className="h-28 w-full rounded-2xl" />
+          ))}
+        </div>
+      </div>
+    )
+  }
+
+  // 2. Estado de error: tarjeta con AlertTriangle y botón Reintentar
+  if (hasError) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background pb-20">
+        <OfflineBanner />
+        <div className="px-4 py-8 flex flex-col items-center">
+          <div className="w-full max-w-sm rounded-2xl border border-destructive/20 bg-card p-6 flex flex-col items-center text-center space-y-3">
+            <AlertTriangle className="w-12 h-12 text-destructive stroke-[1.5]" />
+            <div className="space-y-1">
+              <h3 className="text-base font-semibold text-foreground">No pudimos cargar tu ruta</h3>
+              <p className="text-sm text-muted-foreground">Ocurrió un error al obtener tus pedidos asignados.</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRetry}
+              disabled={isRetrying}
+              className="mt-2 h-11 px-6 rounded-xl bg-primary text-primary-foreground text-sm font-semibold active:scale-95 transition"
+            >
+              {isRetrying ? 'Reintentando...' : 'Reintentar'}
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // 3. Estado vacío: EmptyState con Truck
+  if (orders.length === 0) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background pb-20">
+        <OfflineBanner />
+        <div className="px-4 py-16 flex items-center justify-center">
+          <EmptyState
+            icon={Truck}
+            titulo="No tenés ruta asignada hoy"
+            detalle="Cuando operación te asigne un cargue, aparecerá acá"
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // 4. Estado normal
+  const progressRatio = stats.total > 0 ? (stats.delivered / stats.total) * 100 : 0
 
   return (
-    <div className="flex flex-col min-h-screen bg-[#F7F9FC] pb-24">
-      {/* Route Summary Card */}
-      <div className="p-4">
-        <div className="bg-white rounded-2xl p-4 shadow-subtle border border-border">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
-              Progreso de Entregas
-            </span>
-            <span className="font-mono text-xs font-bold text-[#001F36]">
-              {stats.delivered} de {stats.total} Paradas ({stats.progressPercentage}%)
-            </span>
-          </div>
+    <div className="flex flex-col min-h-screen bg-background pb-24">
+      {/* Banner de conectividad si está offline */}
+      <OfflineBanner />
 
-          {/* Progress Bar */}
-          <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden mb-3 border border-slate-200/60">
-            <div
-              className="h-full bg-emerald-500 transition-all duration-500 rounded-full"
-              style={{ width: `${stats.progressPercentage}%` }}
-            />
-          </div>
-
-          {/* Operational Metrics */}
-          <div className="grid grid-cols-2 gap-2 text-xs">
-            <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-100 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-600 shrink-0" />
-              <div>
-                <span className="text-slate-500 block text-[11px]">Pendientes:</span>
-                <span className="font-mono font-bold text-slate-800 text-sm">
-                  {stats.pending} paradas
-                </span>
-              </div>
-            </div>
-            <div className="bg-emerald-50/60 p-2.5 rounded-xl border border-emerald-100 flex items-center gap-2">
-              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
-              <div>
-                <span className="text-emerald-700 block text-[11px]">Completados:</span>
-                <span className="font-mono font-bold text-emerald-800 text-sm">
-                  {stats.delivered} entregados
-                </span>
-              </div>
-            </div>
-          </div>
+      {/* Entrada: barra de progreso de 4 px pegada bajo el header con entregadas/total a la derecha */}
+      <div
+        className="bg-card border-b border-border px-4 py-2.5 flex items-center justify-between gap-3 select-none"
+        title={`Ruta del ${formatoFechaCRM()}`}
+      >
+        <div className="flex-1 h-1 bg-secondary rounded-full overflow-hidden">
+          <div
+            className="h-full bg-primary transition-all duration-300 rounded-full"
+            style={{ width: `${progressRatio}%` }}
+            role="progressbar"
+            aria-valuenow={stats.delivered}
+            aria-valuemin={0}
+            aria-valuemax={stats.total}
+          />
         </div>
+        <span className="font-mono text-xs font-medium text-muted-foreground shrink-0">
+          {stats.delivered}/{stats.total}
+        </span>
       </div>
 
-      {/* View Switcher (Lista vs Mapa) & Filters */}
-      <div className="px-4 mb-3 flex items-center justify-between gap-2">
-        {/* Filter Pills */}
-        <div className="flex items-center gap-1.5 overflow-x-auto py-1">
-          <button
-            onClick={() => setFilter('all')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-              filter === 'all'
-                ? 'bg-[#001F36] text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-border hover:bg-slate-50'
-            }`}
-          >
-            Todos ({stats.total})
-          </button>
-          <button
-            onClick={() => setFilter('pending')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-              filter === 'pending'
-                ? 'bg-[#001F36] text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-border hover:bg-slate-50'
-            }`}
-          >
-            Pendientes ({stats.pending})
-          </button>
-          <button
-            onClick={() => setFilter('delivered')}
-            className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-              filter === 'delivered'
-                ? 'bg-emerald-700 text-white shadow-sm'
-                : 'bg-white text-slate-600 border border-border hover:bg-slate-50'
-            }`}
-          >
-            Entregados ({stats.delivered})
-          </button>
+      {/* Fila única de filtros: [buscador flex-1][DropdownMenu Estado][botón X si hay filtro] + [Lista | Mapa] */}
+      <div className="px-4 pt-3 pb-1 flex items-center gap-2">
+        {/* Buscador flex-1 con icono Search */}
+        <div className="relative flex-1 min-w-0 h-10 rounded-xl border border-border bg-card flex items-center px-3">
+          <Search className="w-4 h-4 text-muted-foreground shrink-0" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar..."
+            className="w-full h-full bg-transparent pl-2 text-sm text-foreground placeholder:text-muted-foreground outline-none"
+            aria-label="Buscar parada"
+          />
         </div>
 
-        {/* View Toggle (List / Map) */}
-        <div className="flex bg-slate-200/80 p-0.5 rounded-xl shrink-0 border border-slate-300/60">
+        {/* DropdownMenu Estado */}
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button
+              type="button"
+              className="h-10 px-3 rounded-xl border border-border bg-card flex items-center gap-1 text-sm font-medium text-foreground outline-none active:scale-[0.98] transition shrink-0"
+              aria-label="Filtrar por estado"
+            >
+              <span>{FILTER_LABELS[filter]}</span>
+              <ChevronDown className="w-4 h-4 text-muted-foreground" />
+            </button>
+          </DropdownMenu.Trigger>
+
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              className="z-50 min-w-[130px] bg-card border border-border rounded-xl p-1 shadow-lg text-sm text-foreground animate-in fade-in-50"
+              sideOffset={4}
+              align="end"
+            >
+              {(['all', 'pending', 'delivered'] as const).map((key) => (
+                <DropdownMenu.Item
+                  key={key}
+                  onSelect={() => setFilter(key)}
+                  className="flex items-center justify-between px-3 py-2 rounded-lg cursor-pointer hover:bg-secondary outline-none text-sm select-none"
+                >
+                  <span>{FILTER_LABELS[key]}</span>
+                  {filter === key && <Check className="w-4 h-4 text-primary ml-2" />}
+                </DropdownMenu.Item>
+              ))}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+
+        {/* Botón X solo si hay filtro activo */}
+        {hasActiveFilter && (
           <button
+            type="button"
+            onClick={() => {
+              setSearch('')
+              setFilter('all')
+            }}
+            aria-label="Limpiar filtros"
+            className="h-10 w-10 rounded-xl border border-border bg-card flex items-center justify-center text-muted-foreground hover:text-foreground active:scale-95 transition shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        )}
+
+        {/* Segmented control Lista | Mapa a la derecha */}
+        <div className="h-10 p-0.5 rounded-xl border border-border bg-card flex items-center shrink-0">
+          <button
+            type="button"
             onClick={() => setViewMode('list')}
             aria-label="Vista Lista"
-            className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
+            className={cn(
+              'h-full px-1.5 min-[420px]:px-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition',
               viewMode === 'list'
-                ? 'bg-white text-[#001F36] shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
           >
             <List className="w-4 h-4" />
+            <span className="hidden min-[420px]:inline">Lista</span>
           </button>
           <button
+            type="button"
             onClick={() => setViewMode('map')}
             aria-label="Vista Mapa"
-            className={`p-1.5 rounded-lg text-xs font-semibold flex items-center gap-1 transition-all ${
+            className={cn(
+              'h-full px-1.5 min-[420px]:px-2 rounded-lg text-xs font-semibold flex items-center gap-1 transition',
               viewMode === 'map'
-                ? 'bg-white text-[#001F36] shadow-sm'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
           >
             <Map className="w-4 h-4" />
+            <span className="hidden min-[420px]:inline">Mapa</span>
           </button>
         </div>
       </div>
 
-      {/* Main Content: Map or List */}
-      <div className="px-4 flex-1">
+      {/* Contenido principal: Lista o Mapa */}
+      <div className="px-4 py-3 flex-1">
         {viewMode === 'map' ? (
           <div className="flex flex-col gap-3">
             <GoogleRouteMap
@@ -141,8 +278,8 @@ export const RouteListPage: React.FC = () => {
             />
             {currentStop && (
               <div>
-                <p className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">
-                  Siguiente Parada en Ruta:
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Siguiente parada en ruta
                 </p>
                 <StopCard order={currentStop} driverCoords={coords} isActive />
               </div>
@@ -151,11 +288,10 @@ export const RouteListPage: React.FC = () => {
         ) : (
           <div className="space-y-3">
             {filteredOrders.length === 0 ? (
-              <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300 p-6">
-                <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto mb-2 opacity-80" />
-                <h4 className="font-bold text-slate-800 text-sm">No hay paradas en esta categoría</h4>
-                <p className="text-xs text-slate-500 mt-1">
-                  Revisa los demás filtros o continúa con tus entregas pendientes.
+              <div className="text-center py-12 px-4 rounded-2xl border border-dashed border-border bg-card space-y-1">
+                <p className="text-sm font-semibold text-foreground">Sin resultados</p>
+                <p className="text-xs text-muted-foreground">
+                  No hay paradas que coincidan con la búsqueda o filtro.
                 </p>
               </div>
             ) : (
@@ -174,3 +310,5 @@ export const RouteListPage: React.FC = () => {
     </div>
   )
 }
+
+export default RouteListPage
